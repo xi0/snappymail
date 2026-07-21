@@ -1,0 +1,66 @@
+/**
+ * GazelleMail Brand Theme for SnappyMail
+ * Derived from the design tokens of gazellemail.dk
+ */
+
+:root {
+    /* --- Core Brand Colors --- */
+    --gazelle-navy: #111827;       /* Primary text & headers */
+    --gazelle-blue: #0066cc;       /* Brand action color / Links */
+    --gazelle-blue-hover: #0052a3; /* Darker accent hover state */
+    --gazelle-light-bg: #f9fafb;   /* Main application container background */
+    --gazelle-border: #e5e7eb;     /* Soft borders & structural lines */
+    
+    /* --- SnappyMail Functional Mappings --- */
+    
+    /* Main Background & Text Layout */
+    --main-color: var(--gazelle-navy);
+    --main-bg-color: #ffffff;
+    --main-bg-image: url("images/background.png");
+    
+    /* Panels, Lists and Workspace Controls */
+    --panel-color: var(--gazelle-navy);
+    --panel-bg-color: var(--gazelle-light-bg);
+    --panel-border-color: var(--gazelle-border);
+    
+    /* Active States & Highlighting */
+    --selection-color: #ffffff;
+    --selection-bg-color: var(--gazelle-blue);
+    
+    /* Buttons & Interactive Elements */
+    --btn-color: #ffffff;
+    --btn-bg-color: var(--gazelle-blue);
+    --btn-border-color: var(--gazelle-blue);
+    
+    --btn-hover-color: #ffffff;
+    --btn-hover-bg-color: var(--gazelle-blue-hover);
+    --btn-hover-border-color: var(--gazelle-blue-hover);
+
+    /* Form Fields & Inputs */
+    --input-color: var(--gazelle-navy);
+    --input-bg-color: #ffffff;
+    --input-border-color: var(--gazelle-border);
+    --input-focus-border-color: var(--gazelle-blue);
+
+    /* Accent & Brand Elements */
+    --accent-color: var(--gazelle-blue);
+    --accent-bg-color: #e6f0fa;
+    
+    /* Miscellaneous Scaffolding UI */
+    --loading-color: var(--gazelle-blue);
+    --scrollbar-thumb-color: var(--gazelle-border);
+    --scrollbar-thumb-hover-color: #d1d5db;
+}
+
+.app-layout {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+.list-item.selected {
+    background-color: var(--gazelle-blue) !important;
+    color: #ffffff !important;
+}
+
+.list-item.unread {
+    border-left: 3px solid var(--gazelle-blue);
+}
