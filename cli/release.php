@@ -9,7 +9,7 @@ if (isset($options['plugins'])) {
 	require(ROOT_DIR . '/build/plugins.php');
 }
 
-$gulp = trim(`which gulp`);
+$gulp = trim('node_modules/.bin/gulp');
 if (!$gulp) {
 	exit('gulp not installed, run as root: npm install --global gulp-cli');
 }
