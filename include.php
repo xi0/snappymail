@@ -1,8 +1,6 @@
 <?php
 
-// Name this file as "include.php" to enable it.
-
-//header('Strict-Transport-Security: max-age=31536000');
+header('Strict-Transport-Security: max-age=31536000');
 
 /**
  * Uncomment to enable multiple domain installation.
@@ -17,8 +15,7 @@
 /**
  * Custom 'data' folder path
  */
-//define('APP_DATA_FOLDER_PATH', dirname(__DIR__) . '/snappymail-data/');
-//define('APP_DATA_FOLDER_PATH', '/var/external-snappymail-data-folder/');
+define('APP_DATA_FOLDER_PATH', '/home/www/snappymail-data/');
 
 /**
  * Additional configuration file name
