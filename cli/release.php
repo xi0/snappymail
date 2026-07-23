@@ -142,8 +142,8 @@ function __get_custom_data_full_path()
 	$zip->addFromString('include.php', $data);
 	$tar->addFromString('include.php', $data);
 } else {
-	$zip->addFile('_include.php');
-	$tar->addFile('_include.php');
+	$zip->addFile('include.php');
+	$tar->addFile('include.php');
 }
 
 $zip->addFile('.htaccess');
