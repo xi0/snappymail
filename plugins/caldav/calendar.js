@@ -505,18 +505,15 @@ function hideCalendar() {
 }
 
 function loadFullCalendar() {
-	if (window.FullCalendar) { initializeFullCalendar(); return; }
-	
-	// Load FullCalendar bundle (includes CSS)
-	const script = document.createElement('script');
-	script.src = 'https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js';
-	script.onload = () => {
-		initializeCalendar();
-	};
-	script.onerror = () => {
-		document.getElementById('fc-calendar').innerHTML = '<div style="padding:40px;text-align:center;color:#999;">Failed to load calendar. Please refresh.</div>';
-	};
-	document.head.appendChild(script);
+	// FullCalendar is bundled with this plugin and served from the same origin
+	// ('self'), so no external CDN <script> is injected here. This keeps
+	// SnappyMail's Content-Security-Policy (script-src 'self' + nonce) intact.
+	if (window.FullCalendar) { initializeCalendar(); return; }
+
+	const container = document.getElementById('fc-calendar');
+	if (container) {
+		container.innerHTML = '<div style="padding:40px;text-align:center;color:#999;">Calendar library failed to load. Please reinstall the plugin (missing fullcalendar/index.global.min.js).</div>';
+	}
 }
 
 function initializeCalendar() {

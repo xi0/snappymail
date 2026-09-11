@@ -1,6 +1,6 @@
 <?php
 
-class MailbuxCalDAVAutoPlugin extends \RainLoop\Plugins\AbstractPlugin
+class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 {
 	const
 		NAME     = 'Mailbux CalDAV Auto',
@@ -10,16 +10,29 @@ class MailbuxCalDAVAutoPlugin extends \RainLoop\Plugins\AbstractPlugin
 		DESCRIPTION = 'Auto-configures CalDAV calendar sync with JMAP support - switches per account',
 		REQUIRED = '2.0.0';
 
+	private $lastConfiguredEmail = null;
+
 	public function Init() : void
 	{
+		// Self-configure CalDAV sync per account (no CardDAV dependency)
+		$this->addHook('login.success', 'AutoConfigureCalDAV');
+		$this->addHook('json.after-AccountSwitch', 'OnAfterAccountSwitch');
+
 		// Add custom JSON actions
+		$this->addJsonHook('GetCalendars', 'DoGetCalendars');
 		$this->addJsonHook('GetCalendarEvents', 'DoGetCalendarEvents');
 		$this->addJsonHook('CreateCalendarEvent', 'DoCreateCalendarEvent');
 		$this->addJsonHook('UpdateCalendarEvent', 'DoUpdateCalendarEvent');
 		$this->addJsonHook('DeleteCalendarEvent', 'DoDeleteCalendarEvent');
 		
 		// Add JavaScript
+		// FullCalendar is bundled locally (see fullcalendar/README.md) and is
+		// therefore served from 'self'. Loading it from a CDN would be blocked
+		// by SnappyMail's Content-Security-Policy (script-src 'self' + nonce).
+		// Must be registered before calendar.js so window.FullCalendar exists.
+		$this->addJs('fullcalendar/index.global.min.js');
 		$this->addJs('calendar.js');
+		$this->addJs('calendar-dialog.js');
 		$this->addJs('contacts-popover.js');
 		
 		// Add CSS
@@ -46,7 +59,7 @@ class MailbuxCalDAVAutoPlugin extends \RainLoop\Plugins\AbstractPlugin
 				->SetLabel('Default Protocol')
 				->SetType(\RainLoop\Enumerations\PluginPropertyType::SELECTION)
 				->SetDescription('Default protocol to use for calendar sync')
-				->SetDefaultValue(['caldav', 'jmap'])
+				->SetOptions(['caldav', 'jmap'])
 				->SetDefaultValue('caldav'),
 			\RainLoop\Plugins\Property::NewInstance('auto_sync')
 				->SetLabel('Auto Sync')
@@ -62,9 +75,158 @@ class MailbuxCalDAVAutoPlugin extends \RainLoop\Plugins\AbstractPlugin
 	}
 	
 	/**
-	 * Get calendar configuration from CardDAV contacts_sync
+	 * Called after AccountSwitch action completes.
+	 */
+	public function OnAfterAccountSwitch(array &$aResponse)
+	{
+		if (!empty($aResponse['Result'])) {
+			// Account switch succeeded - clear last email to force update
+			$this->lastConfiguredEmail = null;
+
+			$oAccount = $this->Manager()->Actions()->getAccountFromToken();
+			if ($oAccount) {
+				$this->AutoConfigureCalDAV($oAccount);
+			}
+		}
+	}
+
+	/**
+	 * Auto-configure CalDAV sync for the current account using this plugin's
+	 * own settings (caldav_server) and its own storage namespace (calendar_sync).
+	 */
+	public function AutoConfigureCalDAV(\RainLoop\Model\Account $oAccount)
+	{
+		if (!$oAccount || !$oAccount->Email()) {
+			return;
+		}
+
+		if (!$this->Config()->Get('plugin', 'auto_sync', true)) {
+			return;
+		}
+
+		$sEmail = $oAccount->Email();
+
+		// Only update if email changed (avoid updating on every request)
+		if ($this->lastConfiguredEmail === $sEmail) {
+			return;
+		}
+
+		$this->lastConfiguredEmail = $sEmail;
+		$oActions = $this->Manager()->Actions();
+
+		try {
+			$oStorageProvider = $oActions->StorageProvider();
+			if (!$oStorageProvider) {
+				return;
+			}
+
+			// Build the CalDAV home URL from this plugin's own setting
+			$sServer = \trim($this->Config()->Get('plugin', 'caldav_server', 'https://my.mailbux.com/dav/cal'));
+			if ('' === $sServer) {
+				return;
+			}
+			$sCalDAVUrl = \rtrim($sServer, '/') . '/' . $sEmail;
+
+			// Get account credentials
+			$sPassword = null;
+			$sPasswordHMAC = null;
+
+			$aAdditionalAccounts = $this->getAdditionalAccounts($oAccount, $oStorageProvider);
+
+			if (isset($aAdditionalAccounts[$sEmail]['pass'])) {
+				// Added account - convert password format
+				$oMainAccount = $oActions->GetMainAccountFromToken();
+				if (!$oMainAccount) {
+					return;
+				}
+
+				$sCryptKey = $oMainAccount->CryptKey();
+
+				$sRawPassword = \SnappyMail\Crypt::DecryptUrlSafe($aAdditionalAccounts[$sEmail]['pass'], $sCryptKey);
+				if (is_object($sRawPassword) && method_exists($sRawPassword, '__toString')) {
+					$sRawPassword = (string)$sRawPassword;
+				}
+				if (!$sRawPassword) {
+					return;
+				}
+
+				$sPassword = \SnappyMail\Crypt::EncryptToJSON($sRawPassword, $sCryptKey);
+				$sPasswordHMAC = \hash_hmac('sha1', $sPassword, $sCryptKey);
+			} else {
+				// Primary account - encrypt password
+				$sRawPassword = $oAccount->ImapPass();
+				$sCryptKey = $oAccount->CryptKey();
+				$sPassword = \SnappyMail\Crypt::EncryptToJSON($sRawPassword, $sCryptKey);
+				$sPasswordHMAC = \hash_hmac('sha1', $sPassword, $sCryptKey);
+			}
+
+			$aCalendarData = [
+				'Mode' => 1,
+				'User' => $sEmail,
+				'Password' => $sPassword,
+				'PasswordHMAC' => $sPasswordHMAC,
+				'Url' => $sCalDAVUrl
+			];
+
+			// Save CalDAV sync data in this plugin's own storage
+			$oStorageProvider->Put($oAccount,
+				\RainLoop\Providers\Storage\Enumerations\StorageType::CONFIG,
+				'calendar_sync',
+				\json_encode($aCalendarData)
+			);
+
+		} catch (\Exception $e) {
+			// Silent fail
+		}
+	}
+
+	/**
+	 * Get additional accounts from storage.
+	 */
+	private function getAdditionalAccounts(\RainLoop\Model\Account $oAccount, $oStorageProvider)
+	{
+		try {
+			$mData = $oStorageProvider->Get($oAccount,
+				\RainLoop\Providers\Storage\Enumerations\StorageType::CONFIG,
+				'additionalaccounts'
+			);
+
+			if ($mData && \is_string($mData)) {
+				$aData = \json_decode($mData, true);
+				return \is_array($aData) ? $aData : [];
+			}
+		} catch (\Exception $e) {
+			// Silent fail
+		}
+
+		return [];
+	}
+
+	/**
+	 * Get calendar configuration from this plugin's own calendar_sync storage.
+	 *
+	 * The config is normally written by AutoConfigureCalDAV() on login, but a
+	 * session can be restored without firing 'login.success' (remember me) or
+	 * the plugin can be enabled while the user is already logged in. In those
+	 * cases the stored config does not exist yet, so build it on demand.
 	 */
 	private function getCalendarConfig(\RainLoop\Model\Account $oAccount)
+	{
+		$aConfig = $this->readCalendarConfig($oAccount);
+		if (!$aConfig) {
+			// Nothing stored for this account yet - configure it now.
+			$this->lastConfiguredEmail = null;
+			$this->AutoConfigureCalDAV($oAccount);
+			$aConfig = $this->readCalendarConfig($oAccount);
+		}
+
+		return $aConfig;
+	}
+
+	/**
+	 * Read the calendar configuration from this plugin's own calendar_sync storage.
+	 */
+	private function readCalendarConfig(\RainLoop\Model\Account $oAccount)
 	{
 		try {
 			$oStorageProvider = $this->Manager()->Actions()->StorageProvider();
@@ -72,24 +234,20 @@ class MailbuxCalDAVAutoPlugin extends \RainLoop\Plugins\AbstractPlugin
 				return null;
 			}
 			
-			// Get contacts_sync config from CardDAV plugin
+			// Get this plugin's own calendar_sync config
 			$mData = $oStorageProvider->Get($oAccount,
 				\RainLoop\Providers\Storage\Enumerations\StorageType::CONFIG,
-				'contacts_sync'
+				'calendar_sync'
 			);
 			
 			if ($mData && \is_string($mData)) {
-				$aCardDAVData = \json_decode($mData, true);
-				if (\is_array($aCardDAVData) && isset($aCardDAVData['User'], $aCardDAVData['Password'])) {
-					// Build CalDAV URL from CardDAV URL by replacing dav/card with dav/cal
-					$sCalDAVUrl = str_replace('/dav/card/', '/dav/cal/', $aCardDAVData['Url']);
-					// Remove /default suffix and let us add it ourselves
-					$sCalDAVUrl = rtrim(str_replace('/default', '', $sCalDAVUrl), '/');
+				$aData = \json_decode($mData, true);
+				if (\is_array($aData) && isset($aData['User'], $aData['Password'], $aData['Url'])) {
 					
 					return [
-						'User' => $aCardDAVData['User'],
-						'Password' => $aCardDAVData['Password'],
-						'CalDAVUrl' => $sCalDAVUrl
+						'User' => $aData['User'],
+						'Password' => $aData['Password'],
+						'CalDAVUrl' => rtrim($aData['Url'], '/')
 					];
 				}
 			}
@@ -98,6 +256,176 @@ class MailbuxCalDAVAutoPlugin extends \RainLoop\Plugins\AbstractPlugin
 		}
 		
 		return null;
+	}
+	
+	/**
+	 * Decrypt the stored CalDAV password using the MAIN account's CryptKey.
+	 */
+	private function getDecryptedPassword(array $aConfig)
+	{
+		$oMainAccount = $this->Manager()->Actions()->GetMainAccountFromToken();
+		if (!$oMainAccount || !method_exists($oMainAccount, 'CryptKey')) {
+			return null;
+		}
+		
+		$sPassword = \SnappyMail\Crypt::DecryptFromJSON($aConfig['Password'], $oMainAccount->CryptKey());
+		if (is_object($sPassword) && method_exists($sPassword, '__toString')) {
+			$sPassword = (string)$sPassword;
+		}
+		
+		return $sPassword;
+	}
+	
+	/**
+	 * Build the absolute URL of a single calendar collection.
+	 */
+	private function calendarUrl(array $aConfig, $sCalendarId) : string
+	{
+		$sCalendarId = trim((string)$sCalendarId);
+		if ('' === $sCalendarId) {
+			$sCalendarId = 'default';
+		}
+		
+		return rtrim($aConfig['CalDAVUrl'], '/') . '/' . rawurlencode($sCalendarId);
+	}
+	
+	/**
+	 * List all calendars available for the account (CalDAV discovery).
+	 */
+	public function DoGetCalendars() : array
+	{
+		try {
+			$oAccount = $this->Manager()->Actions()->getAccountFromToken();
+			if (!$oAccount) {
+				return $this->jsonResponse(__FUNCTION__, ['calendars' => [], 'message' => 'Please log in first']);
+			}
+			
+			$aConfig = $this->getCalendarConfig($oAccount);
+			if (!$aConfig) {
+				return $this->jsonResponse(__FUNCTION__, ['calendars' => [], 'message' => 'Calendar not configured yet. Please check settings.']);
+			}
+			
+			$sPassword = $this->getDecryptedPassword($aConfig);
+			if (null === $sPassword) {
+				return $this->jsonResponse(__FUNCTION__, ['calendars' => [], 'error' => 'Cannot access encryption key']);
+			}
+			
+			// PROPFIND the calendar home to discover the collections
+			$sHomeUrl = rtrim($aConfig['CalDAVUrl'], '/') . '/';
+			$sBody = '<?xml version="1.0" encoding="utf-8" ?>' . "\n";
+			$sBody .= '<D:propfind xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav" xmlns:A="http://apple.com/ns/ical/">' . "\n";
+			$sBody .= '  <D:prop>' . "\n";
+			$sBody .= '    <D:displayname />' . "\n";
+			$sBody .= '    <D:resourcetype />' . "\n";
+			$sBody .= '    <A:calendar-color />' . "\n";
+			$sBody .= '  </D:prop>' . "\n";
+			$sBody .= '</D:propfind>';
+			
+			$result = $this->makeCalDAVRequest(
+				$sHomeUrl,
+				'PROPFIND',
+				$aConfig['User'],
+				$sPassword,
+				$sBody,
+				[
+					'Content-Type: application/xml; charset=utf-8',
+					'Depth: 1'
+				]
+			);
+			
+			$aCalendars = [];
+			if ($result['code'] === 207) {
+				$aCalendars = $this->parseCalendarsResponse($result['body']);
+			}
+			
+			// Always provide at least one usable calendar so the UI keeps working
+			if (!$aCalendars) {
+				$aCalendars = [
+					['id' => 'default', 'name' => 'Calendar', 'color' => '#00639a']
+				];
+			}
+			
+			return $this->jsonResponse(__FUNCTION__, ['calendars' => $aCalendars]);
+			
+		} catch (\Exception $e) {
+			return $this->jsonResponse(__FUNCTION__, ['calendars' => [], 'error' => $e->getMessage()]);
+		}
+	}
+	
+	/**
+	 * Parse a CalDAV PROPFIND multistatus response into a list of calendars.
+	 */
+	private function parseCalendarsResponse($xml) : array
+	{
+		$aCalendars = [];
+		
+		try {
+			$doc = new \DOMDocument();
+			$doc->loadXML($xml);
+			
+			$xpath = new \DOMXPath($doc);
+			$xpath->registerNamespace('D', 'DAV:');
+			$xpath->registerNamespace('C', 'urn:ietf:params:xml:ns:caldav');
+			$xpath->registerNamespace('A', 'http://apple.com/ns/ical/');
+			
+			$aPalette = ['#00639a', '#16a765', '#e67c73', '#f6bf26', '#8e24aa', '#f4511e', '#039be5', '#7cb342'];
+			$i = 0;
+			
+			foreach ($xpath->query('//D:response') as $response) {
+				// Only keep calendar collections
+				if (0 === $xpath->query('.//D:resourcetype/C:calendar', $response)->length) {
+					continue;
+				}
+				
+				$hrefNodes = $xpath->query('./D:href', $response);
+				if (!$hrefNodes->length) {
+					continue;
+				}
+				
+				$sHref = rtrim(trim($hrefNodes->item(0)->nodeValue), '/');
+				if ('' === $sHref) {
+					continue;
+				}
+				
+				$aSegments = explode('/', $sHref);
+				$sId = rawurldecode(end($aSegments));
+				if ('' === $sId) {
+					continue;
+				}
+				
+				$sName = '';
+				$nameNodes = $xpath->query('.//D:displayname', $response);
+				if ($nameNodes->length) {
+					$sName = trim($nameNodes->item(0)->nodeValue);
+				}
+				if ('' === $sName) {
+					$sName = $sId;
+				}
+				
+				$sColor = '';
+				$colorNodes = $xpath->query('.//A:calendar-color', $response);
+				if ($colorNodes->length) {
+					$sColor = trim($colorNodes->item(0)->nodeValue);
+				}
+				// Normalize #RRGGBBAA to #RRGGBB
+				if (preg_match('/^#([0-9a-fA-F]{6})/', $sColor, $m)) {
+					$sColor = '#' . $m[1];
+				} else {
+					$sColor = $aPalette[$i % count($aPalette)];
+				}
+				
+				$aCalendars[] = [
+					'id' => $sId,
+					'name' => $sName,
+					'color' => $sColor
+				];
+				++$i;
+			}
+		} catch (\Exception $e) {
+			// Silent fail, caller provides a fallback calendar
+		}
+		
+		return $aCalendars;
 	}
 	
 	/**
@@ -243,13 +571,13 @@ class MailbuxCalDAVAutoPlugin extends \RainLoop\Plugins\AbstractPlugin
 				return $this->jsonResponse(__FUNCTION__, ['events' => [], 'message' => 'Please log in first']);
 			}
 			
-			// Get config from contacts_sync (maintained by CardDAV plugin)
+			// Get config from this plugin's own calendar_sync storage
 			$aConfig = $this->getCalendarConfig($oAccount);
 			if (!$aConfig) {
 				return $this->jsonResponse(__FUNCTION__, ['events' => [], 'message' => 'Calendar not configured yet. Please check settings.']);
 			}
 			
-			// Decrypt password using MAIN account's CryptKey (same as CardDAV does)
+			// Decrypt password using MAIN account's CryptKey
 			$oMainAccount = $this->Manager()->Actions()->GetMainAccountFromToken();
 			if (!$oMainAccount || !method_exists($oMainAccount, 'CryptKey')) {
 				return $this->jsonResponse(__FUNCTION__, ['events' => [], 'error' => 'Cannot access encryption key']);
@@ -262,9 +590,8 @@ class MailbuxCalDAVAutoPlugin extends \RainLoop\Plugins\AbstractPlugin
 				$sPassword = (string)$sPassword;
 			}
 			
-			// Build CalDAV URL
-			$sCalDAVUrl = $aConfig['CalDAVUrl'] . '/default/';
-			
+			// Build CalDAV URL for the requested calendar collection
+			$sCalDAVUrl = $this->calendarUrl($aConfig, $this->jsonParam('CalendarId', 'default')) . '/';
 			
 			// CalDAV REPORT query for events
 			$sReportBody = '<?xml version="1.0" encoding="utf-8" ?>' . "\n";
@@ -320,7 +647,7 @@ class MailbuxCalDAVAutoPlugin extends \RainLoop\Plugins\AbstractPlugin
 			}
 			
 			
-			// Get config from contacts_sync
+			// Get config from this plugin's own calendar_sync storage
 			$aConfig = $this->getCalendarConfig($oAccount);
 			if (!$aConfig) {
 				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => 'Calendar not configured']);
@@ -343,6 +670,7 @@ class MailbuxCalDAVAutoPlugin extends \RainLoop\Plugins\AbstractPlugin
 			
 			
 			// Get event data from request (JS sends Title, Start, End, etc.)
+			$sCalendarId = $this->jsonParam('CalendarId', 'default');
 			$sTitle = $this->jsonParam('Title', '');
 			$sStart = $this->jsonParam('Start', '');
 			$sEnd = $this->jsonParam('End', '');
@@ -398,7 +726,7 @@ class MailbuxCalDAVAutoPlugin extends \RainLoop\Plugins\AbstractPlugin
 			$sICS .= "END:VCALENDAR\r\n";
 			
 			// PUT event to CalDAV server
-			$sEventUrl = $aConfig['CalDAVUrl'] . '/default/' . $sUid . '.ics';
+			$sEventUrl = $this->calendarUrl($aConfig, $sCalendarId) . '/' . $sUid . '.ics';
 			
 			
 			$result = $this->makeCalDAVRequest(
@@ -439,6 +767,7 @@ class MailbuxCalDAVAutoPlugin extends \RainLoop\Plugins\AbstractPlugin
 			}
 			
 			$sEventId = $this->jsonParam('EventId', '');
+			$sCalendarId = $this->jsonParam('CalendarId', 'default');
 			$sTitle = $this->jsonParam('Title', '');
 			$sStart = $this->jsonParam('Start', '');
 			$sEnd = $this->jsonParam('End', '');
@@ -492,7 +821,7 @@ class MailbuxCalDAVAutoPlugin extends \RainLoop\Plugins\AbstractPlugin
 			}
 			
 			// PUT updated event
-			$sEventUrl = rtrim($aConfig['CalDAVUrl'], '/') . '/default/' . $sEventId . '.ics';
+			$sEventUrl = $this->calendarUrl($aConfig, $sCalendarId) . '/' . $sEventId . '.ics';
 			
 			$result = $this->makeCalDAVRequest(
 				$sEventUrl,
@@ -531,6 +860,7 @@ class MailbuxCalDAVAutoPlugin extends \RainLoop\Plugins\AbstractPlugin
 			}
 			
 			$sEventId = $this->jsonParam('EventId', '');
+			$sCalendarId = $this->jsonParam('CalendarId', 'default');
 			if (!$sEventId) {
 				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => 'Event ID required']);
 			}
@@ -550,7 +880,7 @@ class MailbuxCalDAVAutoPlugin extends \RainLoop\Plugins\AbstractPlugin
 			
 			// DELETE event from CalDAV server
 			// URL-encode the event ID to handle @ symbols properly
-			$sEventUrl = rtrim($aConfig['CalDAVUrl'], '/') . '/default/' . rawurlencode($sEventId) . '.ics';
+			$sEventUrl = $this->calendarUrl($aConfig, $sCalendarId) . '/' . rawurlencode($sEventId) . '.ics';
 			
 			
 			$result = $this->makeCalDAVRequest(
