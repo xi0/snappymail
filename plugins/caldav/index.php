@@ -26,12 +26,6 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 		$this->addJsonHook('DeleteCalendarEvent', 'DoDeleteCalendarEvent');
 		
 		// Add JavaScript
-		// FullCalendar is bundled locally (see fullcalendar/README.md) and is
-		// therefore served from 'self'. Loading it from a CDN would be blocked
-		// by SnappyMail's Content-Security-Policy (script-src 'self' + nonce).
-		// Must be registered before calendar.js so window.FullCalendar exists.
-		$this->addJs('fullcalendar/index.global.min.js');
-		$this->addJs('calendar.js');
 		$this->addJs('calendar-dialog.js');
 		$this->addJs('contacts-popover.js');
 		

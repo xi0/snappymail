@@ -39,33 +39,10 @@ Built for performance, privacy, and simplicity — your calendar stays perfectly
 
 1. Download or clone this repository.  
 2. Copy the plugin folder into your SnappyMail `/plugins/` directory.  
-3. Install the bundled FullCalendar library (required — see below):
-   ```bash
-   cd plugins/caldav
-   ./fetch-fullcalendar.sh 6.1.15
-   ```
-4. Enable the plugin from the SnappyMail **Admin Panel**.  
-5. Set the **CalDAV Server URL** in the plugin settings (defaults to `https://my.mailbux.com/dav/cal`). Each account is configured automatically on login using this server URL.  
+3. Enable the plugin from the SnappyMail **Admin Panel**.  
+4. Set the **CalDAV Server URL** in the plugin settings (defaults to `https://my.mailbux.com/dav/cal`). Each account is configured automatically on login using this server URL.  
 
 > ✅ Done! Your SnappyMail is now calendar-enabled.
-
-### 📦 FullCalendar dependency (Content-Security-Policy)
-
-SnappyMail sends a strict `Content-Security-Policy` header:
-
-```
-script-src 'self' 'unsafe-eval' 'nonce-…'
-```
-
-Only same-origin scripts are allowed, so loading FullCalendar from a CDN
-(e.g. `cdn.jsdelivr.net`) is **blocked** by the browser. The plugin therefore
-ships FullCalendar **locally**: `fullcalendar/index.global.min.js` is registered
-with `addJs()` and served from SnappyMail's own origin.
-
-If that file is missing, the calendar will not render. Run
-`./fetch-fullcalendar.sh` (see above) or download the file manually to
-`plugins/caldav/fullcalendar/index.global.min.js`. See
-[`fullcalendar/README.md`](fullcalendar/README.md) for details.
 
 ---
 

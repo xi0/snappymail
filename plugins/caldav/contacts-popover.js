@@ -47,10 +47,6 @@ function setupContactsPopover(contactsBtn) {
 				<span class="contacts-popover-icon">📇</span>
 				<span class="contacts-popover-label">Contacts</span>
 			</button>
-			<button class="contacts-popover-btn" data-action="calendar" title="Calendar">
-				<span class="contacts-popover-icon">📅</span>
-				<span class="contacts-popover-label">Calendar</span>
-			</button>
 		</div>
 	`;
 	
@@ -246,13 +242,6 @@ function setupContactsPopover(contactsBtn) {
 							contactsBtn.onclick = tempHandler;
 						}, 50);
 					}
-				}
-			}, 150);
-		} else if (action === 'calendar') {
-			// Navigate to calendar using location.hash
-			setTimeout(() => {
-				if (window.location) {
-					window.location.hash = '#/calendar';
 				}
 			}, 150);
 		}
