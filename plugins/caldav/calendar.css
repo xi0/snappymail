@@ -467,6 +467,41 @@ html.rl-left-panel-disabled #rl-left .buttonCompose {
 	}
 }
 
+/* ---- Large screens ---- */
+@media (min-width: 1600px) {
+	.mailbux-cal-dialog .mc-window {
+		width: 94vw;
+		max-width: 1600px;
+		max-height: 1080px;
+	}
+	.mailbux-cal-dialog .mc-sidebar {
+		width: 260px;
+	}
+	.mailbux-cal-dialog .mc-day {
+		min-height: 132px;
+	}
+	.mailbux-cal-dialog .mc-month-head-cell,
+	.mailbux-cal-dialog .mc-event,
+	.mailbux-cal-dialog .mc-day-num {
+		font-size: 13px;
+	}
+}
+
+@media (min-width: 2000px) {
+	.mailbux-cal-dialog .mc-window {
+		width: 94vw;
+		max-width: 2040px;
+		max-height: 1240px;
+	}
+	.mailbux-cal-dialog .mc-sidebar {
+		width: 300px;
+	}
+	.mailbux-cal-dialog .mc-day {
+		min-height: 168px;
+		font-size: 14px;
+	}
+}
+
 @media (prefers-color-scheme: dark) {
 	.mailbux-cal-dialog .mc-window {
 		background: #171717;
