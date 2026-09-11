@@ -5,6 +5,8 @@
 'use strict';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+// Display order for week/month views (Monday first)
+const WEEKDAYS_MON = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
 	'July', 'August', 'September', 'October', 'November', 'December'];
 const HOUR_PX = 44;
@@ -43,8 +45,10 @@ function startOfDay(date) {
 }
 
 function startOfWeek(date) {
+	// Monday is the first day of the week
 	const d = startOfDay(date);
-	d.setDate(d.getDate() - d.getDay());
+	const offset = (d.getDay() + 6) % 7;
+	d.setDate(d.getDate() - offset);
 	return d;
 }
 
@@ -402,13 +406,13 @@ function renderMonth(content) {
 	const cursor = state.cursor;
 	const month = cursor.getMonth();
 	const first = new Date(cursor.getFullYear(), month, 1);
-	const gridStart = addDays(first, -first.getDay());
+	const gridStart = addDays(first, -((first.getDay() + 6) % 7));
 	const events = visibleEvents();
 	const today = startOfDay(new Date());
 
 	let html = '<div class="mc-month">';
 	html += '<div class="mc-month-head">';
-	WEEKDAYS.forEach(day => html += '<div class="mc-month-head-cell">' + day + '</div>');
+	WEEKDAYS_MON.forEach(day => html += '<div class="mc-month-head-cell">' + day + '</div>');
 	html += '</div><div class="mc-month-grid">';
 
 	for (let i = 0; i < 42; i++) {
