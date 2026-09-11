@@ -27,7 +27,6 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 		
 		// Add JavaScript
 		$this->addJs('calendar-dialog.js');
-		$this->addJs('contacts-popover.js');
 		
 		// Add CSS
 		$this->addCss('calendar.css');
