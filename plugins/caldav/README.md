@@ -28,10 +28,23 @@ Built for performance, privacy, and simplicity — your calendar stays perfectly
 ## 🚀 Features
 
 - 📆 View and manage CalDAV calendars inside SnappyMail  
+- ➕ Create, ✏️ edit and 🗑️ delete events in **any** of your calendars  
 - 🔄 Two-way synchronization with any CalDAV server  
 - 🔒 Secure encrypted connections  
 - ⚙️ Simple configuration in SnappyMail settings  
 - 📨 Fully compatible with [Mailbux.com](https://mailbux.com) accounts  
+
+---
+
+## 📝 Managing events
+
+Open the calendar dialog with the 📅 button and:
+
+- **Create** — click **+** in the toolbar, click an empty day in the month view (all-day event), or click an empty time slot in the week/day view (1-hour event).
+- **Edit** — click an existing event to open it.
+- **Delete** — open an event and press **Delete**.
+
+The event form lets you pick any of the discovered **calendars** from the dropdown, so an event can be created in — or moved between — all of your available calendars.
 
 ---
 

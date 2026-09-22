@@ -450,6 +450,188 @@ html.rl-left-panel-disabled #rl-left .buttonCompose {
 	overflow: hidden;
 }
 
+/* ---- New event button + event form ---- */
+.mailbux-cal-dialog .mc-new {
+	font-size: 18px;
+	font-weight: 700;
+	line-height: 1;
+	padding: 1px 12px 3px;
+}
+
+.mailbux-cal-dialog .mc-form {
+	position: absolute;
+	inset: 0;
+	z-index: 5;
+	align-items: center;
+	justify-content: center;
+}
+
+.mailbux-cal-dialog .mc-form:not([hidden]) {
+	display: flex;
+}
+
+.mailbux-cal-dialog .mc-form-overlay {
+	position: absolute;
+	inset: 0;
+	background: rgba(0, 0, 0, 0.45);
+}
+
+.mailbux-cal-dialog .mc-form-window {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	width: min(480px, 92%);
+	max-height: 92%;
+	overflow-y: auto;
+	background: #ffffff;
+	color: #1a1a1a;
+	border-radius: 10px;
+	box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+}
+
+.mailbux-cal-dialog .mc-form-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 12px 16px;
+	background: linear-gradient(135deg, #00639a 0%, #0082c9 100%);
+	color: #fff;
+}
+
+.mailbux-cal-dialog .mc-form-head .mc-close {
+	color: #fff;
+}
+
+.mailbux-cal-dialog .mc-form-title {
+	font-size: 16px;
+	font-weight: 600;
+}
+
+.mailbux-cal-dialog .mc-form-body {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	padding: 16px;
+}
+
+.mailbux-cal-dialog .mc-field {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	font-size: 13px;
+}
+
+.mailbux-cal-dialog .mc-field-label {
+	font-weight: 600;
+	color: #666;
+}
+
+.mailbux-cal-dialog .mc-field input,
+.mailbux-cal-dialog .mc-field select,
+.mailbux-cal-dialog .mc-field textarea {
+	width: 100%;
+	box-sizing: border-box;
+	font: inherit;
+	font-size: 14px;
+	padding: 7px 9px;
+	border: 1px solid #c9ced6;
+	border-radius: 6px;
+	background: #fff;
+	color: inherit;
+}
+
+.mailbux-cal-dialog .mc-field input:focus,
+.mailbux-cal-dialog .mc-field select:focus,
+.mailbux-cal-dialog .mc-field textarea:focus {
+	outline: none;
+	border-color: #00639a;
+	box-shadow: 0 0 0 2px rgba(0, 99, 154, 0.2);
+}
+
+.mailbux-cal-dialog .mc-field textarea {
+	resize: vertical;
+	min-height: 64px;
+}
+
+.mailbux-cal-dialog .mc-field-row {
+	display: flex;
+	gap: 12px;
+}
+
+.mailbux-cal-dialog .mc-field-row .mc-field {
+	flex: 1 1 0;
+	min-width: 0;
+}
+
+.mailbux-cal-dialog .mc-check {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	font-size: 14px;
+	cursor: pointer;
+}
+
+.mailbux-cal-dialog .mc-check input {
+	margin: 0;
+}
+
+.mailbux-cal-dialog .mc-form-error {
+	font-size: 13px;
+	color: #c62828;
+	background: #fdecea;
+	border: 1px solid #f5c6c4;
+	border-radius: 6px;
+	padding: 8px 10px;
+}
+
+.mailbux-cal-dialog .mc-form-actions {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding-top: 4px;
+}
+
+.mailbux-cal-dialog .mc-form-spacer {
+	flex: 1;
+}
+
+.mailbux-cal-dialog .mc-form-actions .mc-btn {
+	background: #eef2f6;
+	color: #333;
+	border: 1px solid #c9ced6;
+	padding: 8px 16px;
+}
+
+.mailbux-cal-dialog .mc-form-actions .mc-btn:hover {
+	background: #e2e8ef;
+}
+
+.mailbux-cal-dialog .mc-form-actions .mc-btn-primary {
+	background: #00639a;
+	border-color: #00639a;
+	color: #fff;
+}
+
+.mailbux-cal-dialog .mc-form-actions .mc-btn-primary:hover {
+	background: #0073b3;
+}
+
+.mailbux-cal-dialog .mc-form-actions .mc-btn-danger {
+	background: #fff;
+	border-color: #e9322d;
+	color: #e9322d;
+}
+
+.mailbux-cal-dialog .mc-form-actions .mc-btn-danger:hover {
+	background: #e9322d;
+	color: #fff;
+}
+
+.mailbux-cal-dialog .mc-form-actions .mc-btn:disabled {
+	opacity: 0.55;
+	cursor: default;
+}
+
 /* ---- Responsive & dark mode ---- */
 @media (max-width: 720px) {
 	.mailbux-cal-dialog .mc-window {
@@ -542,5 +724,43 @@ html.rl-left-panel-disabled #rl-left .buttonCompose {
 	}
 	.mailbux-cal-dialog .mc-cal-item:hover {
 		background: #2c2c2c;
+	}
+	.mailbux-cal-dialog .mc-form-window {
+		background: #1f1f1f;
+		color: #d8d8d8;
+		color-scheme: dark;
+	}
+	.mailbux-cal-dialog .mc-field-label {
+		color: #a8a8a8;
+	}
+	.mailbux-cal-dialog .mc-field input,
+	.mailbux-cal-dialog .mc-field select,
+	.mailbux-cal-dialog .mc-field textarea {
+		background: #2a2a2a;
+		border-color: #444;
+		color: #e6e6e6;
+	}
+	.mailbux-cal-dialog .mc-form-error {
+		color: #ff9b95;
+		background: #3a1f1d;
+		border-color: #5c2b28;
+	}
+	.mailbux-cal-dialog .mc-form-actions .mc-btn {
+		background: #2c2c2c;
+		border-color: #444;
+		color: #ddd;
+	}
+	.mailbux-cal-dialog .mc-form-actions .mc-btn:hover {
+		background: #383838;
+	}
+	.mailbux-cal-dialog .mc-form-actions .mc-btn-primary {
+		background: #00639a;
+		border-color: #00639a;
+		color: #fff;
+	}
+	.mailbux-cal-dialog .mc-form-actions .mc-btn-danger {
+		background: #1f1f1f;
+		border-color: #e9322d;
+		color: #ff9b95;
 	}
 }

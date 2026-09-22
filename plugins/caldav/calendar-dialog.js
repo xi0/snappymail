@@ -140,6 +140,38 @@ function parseDate(value) {
 	return isNaN(d.getTime()) ? null : d;
 }
 
+function pad2(value) {
+	return String(value).padStart(2, '0');
+}
+
+// Format a Date as the value of an <input type="date"> (local time)
+function dateInputValue(date) {
+	return date.getFullYear() + '-' + pad2(date.getMonth() + 1) + '-' + pad2(date.getDate());
+}
+
+// Format a Date as the value of an <input type="datetime-local"> (local time)
+function timeInputValue(date) {
+	return dateInputValue(date) + 'T' + pad2(date.getHours()) + ':' + pad2(date.getMinutes());
+}
+
+// Parse an <input type="date"> value into a local midnight Date
+function parseInputDate(value) {
+	const m = ('' + value).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+	return m ? new Date(+m[1], +m[2] - 1, +m[3]) : null;
+}
+
+// Parse an <input type="datetime-local"> value into a local Date
+function parseInputDateTime(value) {
+	const d = new Date(value);
+	return isNaN(d.getTime()) ? null : d;
+}
+
+// Next full hour (used as the default start for a new timed event)
+function nextHour() {
+	const now = new Date();
+	return new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours() + 1, 0, 0, 0);
+}
+
 /* --------------------------------------------------------------- requests */
 
 function request(action, params) {
@@ -215,6 +247,7 @@ function buildDialog() {
 					<button type="button" class="mc-btn" data-cal-view="week">Week</button>
 					<button type="button" class="mc-btn" data-cal-view="month">Month</button>
 				</div>
+				<button type="button" class="mc-btn mc-new" data-cal-new>+</button>
 				<button type="button" class="mc-close" data-cal-close aria-label="Close">×</button>
 			</div>
 			<div class="mc-body">
@@ -223,6 +256,56 @@ function buildDialog() {
 					<div class="mc-cal-list"></div>
 				</aside>
 				<div class="mc-content"></div>
+			</div>
+			<div class="mc-form" data-cal-form hidden>
+				<div class="mc-form-overlay" data-cal-form-close></div>
+				<form class="mc-form-window" autocomplete="off" novalidate>
+					<div class="mc-form-head">
+						<span class="mc-form-title"></span>
+						<button type="button" class="mc-close" data-cal-form-close aria-label="Close">×</button>
+					</div>
+					<div class="mc-form-body">
+						<label class="mc-field">
+							<span class="mc-field-label mc-lbl-title"></span>
+							<input type="text" name="title" maxlength="255" required>
+						</label>
+						<label class="mc-field">
+							<span class="mc-field-label mc-lbl-calendar"></span>
+							<select name="calendar"></select>
+						</label>
+						<label class="mc-check">
+							<input type="checkbox" name="allday">
+							<span class="mc-lbl-allday"></span>
+						</label>
+						<div class="mc-field-row">
+							<label class="mc-field">
+								<span class="mc-field-label mc-lbl-start"></span>
+								<input type="date" name="startDate">
+								<input type="datetime-local" name="startTime">
+							</label>
+							<label class="mc-field">
+								<span class="mc-field-label mc-lbl-end"></span>
+								<input type="date" name="endDate">
+								<input type="datetime-local" name="endTime">
+							</label>
+						</div>
+						<label class="mc-field">
+							<span class="mc-field-label mc-lbl-location"></span>
+							<input type="text" name="location" maxlength="255">
+						</label>
+						<label class="mc-field">
+							<span class="mc-field-label mc-lbl-description"></span>
+							<textarea name="description" rows="3"></textarea>
+						</label>
+						<div class="mc-form-error" hidden></div>
+						<div class="mc-form-actions">
+							<button type="button" class="mc-btn mc-btn-danger" data-cal-delete hidden></button>
+							<span class="mc-form-spacer"></span>
+							<button type="button" class="mc-btn" data-cal-cancel></button>
+							<button type="submit" class="mc-btn mc-btn-primary" data-cal-save></button>
+						</div>
+					</div>
+				</form>
 			</div>
 		</div>`;
 
@@ -237,8 +320,79 @@ function buildDialog() {
 	q('.mc-close').setAttribute('aria-label', t('CALDAV/CLOSE', 'Close'));
 	q('.mc-title-text').textContent = t('CALDAV/CALENDAR', 'Calendar');
 
+	// "New event" button
+	q('[data-cal-new]').textContent = '+';
+	q('[data-cal-new]').title = t('CALDAV/NEW_EVENT', 'New event');
+	q('[data-cal-new]').setAttribute('aria-label', t('CALDAV/NEW_EVENT', 'New event'));
+
+	// Event form labels / buttons
+	q('.mc-lbl-title').textContent = t('CALDAV/TITLE', 'Title');
+	q('.mc-lbl-calendar').textContent = t('CALDAV/CALENDAR', 'Calendar');
+	q('.mc-lbl-allday').textContent = t('CALDAV/ALL_DAY', 'All day');
+	q('.mc-lbl-start').textContent = t('CALDAV/START', 'Start');
+	q('.mc-lbl-end').textContent = t('CALDAV/END', 'End');
+	q('.mc-lbl-location').textContent = t('CALDAV/LOCATION', 'Location');
+	q('.mc-lbl-description').textContent = t('CALDAV/DESCRIPTION', 'Description');
+	q('[data-cal-delete]').textContent = t('CALDAV/DELETE', 'Delete');
+	q('[data-cal-cancel]').textContent = t('CALDAV/CANCEL', 'Cancel');
+	q('[data-cal-save]').textContent = t('CALDAV/SAVE', 'Save');
+	q('.mc-form-title').textContent = t('CALDAV/NEW_EVENT', 'New event');
+	q('.mc-form-head .mc-close').setAttribute('aria-label', t('CALDAV/CLOSE', 'Close'));
+	q('.mc-form-window').addEventListener('submit', saveEventForm);
+	q('[name="allday"]').addEventListener('change', () => toggleFormAllDay(eventFormEls()));
+	q('[data-cal-delete]').addEventListener('click', deleteEventForm);
+
 	dialogEl.addEventListener('click', event => {
 		const target = event.target;
+		// Event form interactions take priority
+		if (target.closest('[data-cal-form-close]') || target.closest('[data-cal-cancel]')) {
+			closeEventForm();
+			return;
+		}
+		if (target.closest('[data-cal-new]')) {
+			openEventForm(null);
+			return;
+		}
+		if (target.closest('[data-cal-form]')) {
+			// Ignore clicks inside the form itself
+			return;
+		}
+		// Clicking an existing event opens the edit form
+		const eventEl = target.closest('[data-cal-event]');
+		if (eventEl) {
+			const chosen = state.events.find(item => item.domId === eventEl.dataset.calEvent);
+			if (chosen) {
+				openEventForm(chosen);
+			}
+			return;
+		}
+		// The "+N more" label should not open the form
+		if (target.closest('.mc-event-more')) {
+			return;
+		}
+		// Clicking an empty month cell creates an all-day event on that date
+		const newDateEl = target.closest('[data-cal-newdate]');
+		if (newDateEl) {
+			const day = parseInputDate(newDateEl.dataset.calNewdate);
+			if (day) {
+				openEventForm(null, {allDay: true, start: day, calendarId: defaultCalendarId()});
+			}
+			return;
+		}
+		// Clicking an empty time-grid column creates a timed event at that slot
+		const newSlotEl = target.closest('[data-cal-newslot]');
+		if (newSlotEl) {
+			const day = parseInputDate(newSlotEl.dataset.calNewslot);
+			if (day) {
+				const rect = newSlotEl.getBoundingClientRect();
+				let minutes = ((event.clientY - rect.top) / HOUR_PX) * 60;
+				minutes = Math.max(0, Math.min(23 * 60, Math.round(minutes / 30) * 30));
+				const start = new Date(day.getFullYear(), day.getMonth(), day.getDate(), 0, minutes, 0, 0);
+				openEventForm(null, {allDay: false, start: start, calendarId: defaultCalendarId()});
+			}
+			return;
+		}
+
 		if (target.closest('[data-cal-close]')) {
 			closeDialog();
 			return;
@@ -275,7 +429,12 @@ function buildDialog() {
 
 function onKeydown(event) {
 	if (event.key === 'Escape') {
-		closeDialog();
+		const form = dialogEl && dialogEl.querySelector('[data-cal-form]');
+		if (form && !form.hidden) {
+			closeEventForm();
+		} else {
+			closeDialog();
+		}
 	}
 }
 
@@ -299,7 +458,12 @@ function openDialog() {
 function closeDialog() {
 	if (dialogEl) {
 		dialogEl.classList.remove('show');
+		const form = dialogEl.querySelector('[data-cal-form]');
+		if (form) {
+			form.hidden = true;
+		}
 	}
+	editingEvent = null;
 	document.removeEventListener('keydown', onKeydown, true);
 }
 
@@ -349,6 +513,10 @@ async function loadEvents() {
 		}
 	}));
 	state.events = events;
+	// Give each event a stable DOM key for the click handlers
+	state.events.forEach((event, index) => {
+		event.domId = 'cal-event-' + index;
+	});
 }
 
 function normalizeEvent(raw, calendar) {
@@ -358,6 +526,7 @@ function normalizeEvent(raw, calendar) {
 	}
 	return {
 		id: raw.uid || ('event-' + Math.random().toString(36).slice(2)),
+		url: raw.href || '',
 		calendarId: calendar.id,
 		title: raw.summary || t('CALDAV/UNTITLED', 'Untitled'),
 		start: start,
@@ -367,6 +536,253 @@ function normalizeEvent(raw, calendar) {
 		description: raw.description || '',
 		color: calendar.color || '#00639a'
 	};
+}
+
+/* -------------------------------------------------------------- event form */
+
+// The event currently being edited (null when creating a new event)
+let editingEvent = null;
+
+function eventFormEls() {
+	const root = dialogEl.querySelector('[data-cal-form]');
+	return {
+		root: root,
+		title: root.querySelector('[name="title"]'),
+		calendar: root.querySelector('[name="calendar"]'),
+		allday: root.querySelector('[name="allday"]'),
+		startDate: root.querySelector('[name="startDate"]'),
+		startTime: root.querySelector('[name="startTime"]'),
+		endDate: root.querySelector('[name="endDate"]'),
+		endTime: root.querySelector('[name="endTime"]'),
+		location: root.querySelector('[name="location"]'),
+		description: root.querySelector('[name="description"]'),
+		error: root.querySelector('.mc-form-error'),
+		del: root.querySelector('[data-cal-delete]'),
+		save: root.querySelector('[data-cal-save]')
+	};
+}
+
+function fillCalendarOptions(select, selectedId) {
+	select.innerHTML = state.calendars.map(calendar =>
+		'<option value="' + esc(calendar.id) + '"'
+		+ (calendar.id === selectedId ? ' selected' : '') + '>'
+		+ esc(calendar.name) + '</option>'
+	).join('');
+}
+
+// Default calendar for a new event: first visible/selected calendar, else the first one
+function defaultCalendarId() {
+	const visible = state.calendars.find(calendar => state.selected.has(calendar.id));
+	if (visible) {
+		return visible.id;
+	}
+	return state.calendars.length ? state.calendars[0].id : 'default';
+}
+
+function toggleFormAllDay(el) {
+	const allDay = el.allday.checked;
+	el.startDate.style.display = allDay ? '' : 'none';
+	el.endDate.style.display = allDay ? '' : 'none';
+	el.startTime.style.display = allDay ? 'none' : '';
+	el.endTime.style.display = allDay ? 'none' : '';
+}
+
+function showFormError(el, message) {
+	el.error.textContent = message;
+	el.error.hidden = !message;
+}
+
+// Open the form. Pass an existing event to edit it, or (null, defaults) to create.
+function openEventForm(event, defaults) {
+	if (!dialogEl) {
+		return;
+	}
+	if (!state.calendars.length) {
+		state.error = t('CALDAV/NO_CALENDARS', 'No calendars');
+		renderContent();
+		return;
+	}
+
+	const el = eventFormEls();
+	const editing = !!event;
+	editingEvent = event || null;
+	showFormError(el, '');
+
+	el.root.querySelector('.mc-form-title').textContent = editing
+		? t('CALDAV/EDIT_EVENT', 'Edit event')
+		: t('CALDAV/NEW_EVENT', 'New event');
+	el.del.hidden = !editing;
+
+	if (editing) {
+		fillCalendarOptions(el.calendar, event.calendarId);
+		el.title.value = event.title || '';
+		el.location.value = event.location || '';
+		el.description.value = event.description || '';
+		el.allday.checked = !!event.allDay;
+		const start = event.start || new Date();
+		const end = eventEnd(event);
+		el.startTime.value = timeInputValue(start);
+		el.endTime.value = timeInputValue(end && end > start ? end : new Date(start.getTime() + 3600000));
+		el.startDate.value = dateInputValue(start);
+		if (event.allDay) {
+			// DTEND from the server is exclusive; show an inclusive end date
+			let inclusiveEnd = start;
+			if (end && end > start) {
+				inclusiveEnd = addDays(end, -1);
+				if (inclusiveEnd < start) {
+					inclusiveEnd = start;
+				}
+			}
+			el.endDate.value = dateInputValue(inclusiveEnd);
+		} else {
+			el.endDate.value = dateInputValue(end && end > start ? end : start);
+		}
+	} else {
+		const d = defaults || {};
+		const allDay = !!d.allDay;
+		const start = d.start || nextHour();
+		const end = d.end || (allDay ? addDays(start, 1) : new Date(start.getTime() + 3600000));
+		fillCalendarOptions(el.calendar, d.calendarId || defaultCalendarId());
+		el.title.value = '';
+		el.location.value = '';
+		el.description.value = '';
+		el.allday.checked = allDay;
+		el.startTime.value = timeInputValue(start);
+		el.endTime.value = timeInputValue(allDay ? addDays(start, 1) : end);
+		el.startDate.value = dateInputValue(start);
+		// All-day end is inclusive in the UI, exclusive internally
+		el.endDate.value = dateInputValue(allDay ? addDays(end, -1) : end);
+	}
+
+	toggleFormAllDay(el);
+	el.root.hidden = false;
+	setTimeout(() => el.title.focus(), 20);
+}
+
+function closeEventForm() {
+	if (dialogEl) {
+		const root = dialogEl.querySelector('[data-cal-form]');
+		if (root) {
+			root.hidden = true;
+		}
+	}
+	editingEvent = null;
+}
+
+async function saveEventForm(event) {
+	if (event) {
+		event.preventDefault();
+	}
+	const el = eventFormEls();
+	const title = el.title.value.trim();
+	if (!title) {
+		showFormError(el, t('CALDAV/ERROR_TITLE_REQUIRED', 'Event title required'));
+		return;
+	}
+
+	const allDay = el.allday.checked;
+	const calendarId = el.calendar.value || defaultCalendarId();
+	let startParam;
+	let endParam;
+
+	if (allDay) {
+		const startDate = parseInputDate(el.startDate.value);
+		let endDate = parseInputDate(el.endDate.value);
+		if (!startDate) {
+			showFormError(el, t('CALDAV/ERROR_DATE_REQUIRED', 'Please choose a start date'));
+			return;
+		}
+		if (!endDate || endDate < startDate) {
+			endDate = startDate;
+		}
+		startParam = dateInputValue(startDate);
+		// CalDAV DTEND is exclusive for all-day events
+		endParam = dateInputValue(addDays(endDate, 1));
+	} else {
+		const start = parseInputDateTime(el.startTime.value);
+		let end = parseInputDateTime(el.endTime.value);
+		if (!start) {
+			showFormError(el, t('CALDAV/ERROR_DATE_REQUIRED', 'Please choose a start date'));
+			return;
+		}
+		if (!end || end <= start) {
+			end = new Date(start.getTime() + 3600000);
+		}
+		startParam = start.toISOString();
+		endParam = end.toISOString();
+	}
+
+	const params = {
+		CalendarId: calendarId,
+		Title: title,
+		Start: startParam,
+		End: endParam,
+		AllDay: allDay ? 1 : 0,
+		Description: el.description.value,
+		Location: el.location.value
+	};
+
+	showFormError(el, '');
+	el.save.disabled = true;
+	try {
+		if (editingEvent) {
+			if (calendarId === editingEvent.calendarId) {
+				params.EventId = editingEvent.id;
+				params.EventUrl = editingEvent.url || '';
+				await saveEventRequest('UpdateCalendarEvent', params);
+			} else {
+				// Moved to another calendar: create in the target, remove from the source
+				await saveEventRequest('CreateCalendarEvent', params);
+				await saveEventRequest('DeleteCalendarEvent', {
+					EventId: editingEvent.id,
+					EventUrl: editingEvent.url || '',
+					CalendarId: editingEvent.calendarId
+				});
+			}
+		} else {
+			await saveEventRequest('CreateCalendarEvent', params);
+		}
+		closeEventForm();
+		await refreshEvents();
+	} catch (e) {
+		showFormError(el, (e && e.message) || t('CALDAV/REQUEST_FAILED', 'Request failed'));
+	} finally {
+		el.save.disabled = false;
+	}
+}
+
+// Wrap request() and turn a {success:false} payload into a rejection
+async function saveEventRequest(action, params) {
+	const result = await request(action, params);
+	if (result && false === result.success) {
+		throw new Error(result.error || t('CALDAV/REQUEST_FAILED', 'Request failed'));
+	}
+	return result;
+}
+
+async function deleteEventForm() {
+	if (!editingEvent) {
+		return;
+	}
+	if (!window.confirm(t('CALDAV/DELETE_CONFIRM', 'Delete this event?'))) {
+		return;
+	}
+	const el = eventFormEls();
+	showFormError(el, '');
+	el.del.disabled = true;
+	try {
+		await saveEventRequest('DeleteCalendarEvent', {
+			EventId: editingEvent.id,
+			EventUrl: editingEvent.url || '',
+			CalendarId: editingEvent.calendarId
+		});
+		closeEventForm();
+		await refreshEvents();
+	} catch (e) {
+		showFormError(el, (e && e.message) || t('CALDAV/REQUEST_FAILED', 'Request failed'));
+	} finally {
+		el.del.disabled = false;
+	}
 }
 
 /* ------------------------------------------------------------------ render */
@@ -478,11 +894,11 @@ function renderMonth(content) {
 		if (sameDay(day, today)) {
 			classes.push('mc-today');
 		}
-		html += '<div class="' + classes.join(' ') + '">';
+		html += '<div class="' + classes.join(' ') + '" data-cal-newdate="' + dateInputValue(day) + '">';
 		html += '<div class="mc-day-num">' + day.getDate() + '</div>';
 		html += '<div class="mc-day-events">';
 		dayEvents.slice(0, 3).forEach(event => {
-			html += '<div class="mc-event" style="background-color:' + esc(event.color) + '" title="' + esc(eventTooltip(event)) + '">'
+			html += '<div class="mc-event" data-cal-event="' + esc(event.domId) + '" style="background-color:' + esc(event.color) + '" title="' + esc(eventTooltip(event)) + '">'
 				+ (event.allDay ? '' : '<span class="mc-event-time">' + timeLabel(event.start) + '</span> ')
 				+ esc(event.title) + '</div>';
 		});
@@ -527,18 +943,18 @@ function renderTimeGrid(content, days, singleDay) {
 			html += '<span class="mc-daycol-num">' + day.getDate() + '</span>';
 		}
 		html += '</div>';
-		html += '<div class="mc-daycol-allday">';
+		html += '<div class="mc-daycol-allday" data-cal-newdate="' + dateInputValue(day) + '">';
 		allDay.forEach(event => {
-			html += '<div class="mc-event mc-event-allday" style="background-color:' + esc(event.color) + '" title="' + esc(eventTooltip(event)) + '">'
+			html += '<div class="mc-event mc-event-allday" data-cal-event="' + esc(event.domId) + '" style="background-color:' + esc(event.color) + '" title="' + esc(eventTooltip(event)) + '">'
 				+ esc(event.title) + '</div>';
 		});
 		html += '</div>';
 		html += '</div>';
-		html += '<div class="mc-daycol-body">';
+		html += '<div class="mc-daycol-body" data-cal-newslot="' + dateInputValue(day) + '">';
 		timed.forEach(event => {
 			const position = eventPosition(event, day);
 			if (position) {
-				html += '<div class="mc-event mc-event-timed" title="' + esc(eventTooltip(event)) + '"'
+				html += '<div class="mc-event mc-event-timed" data-cal-event="' + esc(event.domId) + '" title="' + esc(eventTooltip(event)) + '"'
 					+ ' style="top:' + position.top + 'px;height:' + position.height + 'px;background-color:' + esc(event.color) + '">'
 					+ '<span class="mc-event-time">' + timeLabel(event.start) + '</span>'
 					+ '<span class="mc-event-title">' + esc(event.title) + '</span></div>';

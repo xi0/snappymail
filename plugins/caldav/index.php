@@ -4,7 +4,7 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 {
 	const
 		NAME     = 'Mailbux CalDAV Auto',
-		VERSION  = '1.3',
+		VERSION  = '1.4',
 		RELEASE  = '2025-11-13',
 		CATEGORY = 'Calendar',
 		DESCRIPTION = 'Auto-configures CalDAV calendar sync with JMAP support - switches per account',
@@ -329,6 +329,35 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 	}
 	
 	/**
+	 * Resolve a CalDAV href reported by the server into an absolute URL.
+	 * If an EventUrl is supplied by the client we must use it unchanged for
+	 * the path (it is already URL-encoded by the server); this just adds the
+	 * scheme/host when the server returned a server-relative path.
+	 */
+	private function resolveEventUrl(array $aConfig, $sUrl) : string
+	{
+		$sUrl = trim((string)$sUrl);
+		if ('' === $sUrl) {
+			return '';
+		}
+		if (preg_match('#^https?://#i', $sUrl)) {
+			return $sUrl;
+		}
+		$aParts = parse_url($aConfig['CalDAVUrl']);
+		$sScheme = !empty($aParts['scheme']) ? $aParts['scheme'] : 'https';
+		if (0 === strpos($sUrl, '//')) {
+			// Protocol-relative href
+			return $sScheme . ':' . $sUrl;
+		}
+		if (!empty($aParts['host'])) {
+			$sBase = $sScheme . '://' . $aParts['host']
+				. (isset($aParts['port']) ? ':' . $aParts['port'] : '');
+			return $sBase . '/' . ltrim($sUrl, '/');
+		}
+		return $sUrl;
+	}
+
+	/**
 	 * List all calendars available for the account (CalDAV discovery).
 	 */
 	public function DoGetCalendars() : array
@@ -539,7 +568,7 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 	/**
 	 * Parse iCalendar data
 	 */
-	private function parseICalendar($icalData)
+	private function parseICalendar($icalData, $sHref = '')
 	{
 		$events = [];
 		
@@ -561,7 +590,8 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 					'dtend' => $this->parseICalDate($currentEvent['dtend'] ?? ''),
 					'description' => $currentEvent['description'] ?? '',
 					'location' => $currentEvent['location'] ?? '',
-					'allDay' => !isset($currentEvent['dtstart']) || strpos($currentEvent['dtstart'], 'T') === false
+					'allDay' => !isset($currentEvent['dtstart']) || strpos($currentEvent['dtstart'], 'T') === false,
+					'href' => $sHref
 				];
 				$events[] = $event;
 				$currentEvent = null;
@@ -765,7 +795,7 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 			$sICS .= "END:VCALENDAR\r\n";
 			
 			// PUT event to CalDAV server
-			$sEventUrl = $this->calendarUrl($aConfig, $sCalendarId) . '/' . $sUid . '.ics';
+			$sEventUrl = $this->calendarUrl($aConfig, $sCalendarId) . '/' . rawurlencode($sUid) . '.ics';
 			
 			
 			$result = $this->makeCalDAVRequest(
@@ -811,6 +841,9 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 			$sStart = $this->jsonParam('Start', '');
 			$sEnd = $this->jsonParam('End', '');
 			$bAllDay = $this->jsonParam('AllDay', false);
+			$sDescription = $this->jsonParam('Description', '');
+			$sLocation = $this->jsonParam('Location', '');
+			$sEventUrlParam = $this->jsonParam('EventUrl', '');
 			
 			if (!$sEventId || !$sTitle) {
 				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_EVENT_ID_TITLE_REQUIRED', [], 'Event ID and title required')]);
@@ -843,6 +876,12 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 			$sICS .= "DTSTART" . ($bAllDay ? ';VALUE=DATE' : '') . ":" . $sStartFormatted . "\r\n";
 			$sICS .= "DTEND" . ($bAllDay ? ';VALUE=DATE' : '') . ":" . $sEndFormatted . "\r\n";
 			$sICS .= "SUMMARY:" . $this->escapeICS($sTitle) . "\r\n";
+			if (!empty($sDescription)) {
+				$sICS .= "DESCRIPTION:" . $this->escapeICS($sDescription) . "\r\n";
+			}
+			if (!empty($sLocation)) {
+				$sICS .= "LOCATION:" . $this->escapeICS($sLocation) . "\r\n";
+			}
 			$sICS .= "END:VEVENT\r\n";
 			$sICS .= "END:VCALENDAR\r\n";
 			
@@ -859,8 +898,11 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 				$sPassword = (string)$sPassword;
 			}
 			
-			// PUT updated event
-			$sEventUrl = $this->calendarUrl($aConfig, $sCalendarId) . '/' . $sEventId . '.ics';
+			// PUT updated event (reuse the server-reported resource URL when available)
+			$sEventUrl = $this->resolveEventUrl($aConfig, $sEventUrlParam);
+			if ('' === $sEventUrl) {
+				$sEventUrl = $this->calendarUrl($aConfig, $sCalendarId) . '/' . rawurlencode($sEventId) . '.ics';
+			}
 			
 			$result = $this->makeCalDAVRequest(
 				$sEventUrl,
@@ -900,6 +942,7 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 			
 			$sEventId = $this->jsonParam('EventId', '');
 			$sCalendarId = $this->jsonParam('CalendarId', 'default');
+			$sEventUrlParam = $this->jsonParam('EventUrl', '');
 			if (!$sEventId) {
 				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_EVENT_ID_REQUIRED', [], 'Event ID required')]);
 			}
@@ -918,8 +961,11 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 			}
 			
 			// DELETE event from CalDAV server
-			// URL-encode the event ID to handle @ symbols properly
-			$sEventUrl = $this->calendarUrl($aConfig, $sCalendarId) . '/' . rawurlencode($sEventId) . '.ics';
+			// Prefer the exact server-reported resource URL, else derive it from the UID
+			$sEventUrl = $this->resolveEventUrl($aConfig, $sEventUrlParam);
+			if ('' === $sEventUrl) {
+				$sEventUrl = $this->calendarUrl($aConfig, $sCalendarId) . '/' . rawurlencode($sEventId) . '.ics';
+			}
 			
 			
 			$result = $this->makeCalDAVRequest(
@@ -967,10 +1013,16 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 			$responses = $xpath->query('//D:response');
 			
 			foreach ($responses as $response) {
+				// The href identifies the exact calendar object resource
+				$sHref = '';
+				$hrefNodes = $xpath->query('./D:href', $response);
+				if ($hrefNodes->length) {
+					$sHref = trim($hrefNodes->item(0)->nodeValue);
+				}
 				$calendarData = $xpath->query('.//C:calendar-data', $response);
 				if ($calendarData->length > 0) {
 					$icalData = $calendarData->item(0)->nodeValue;
-					$parsedEvents = $this->parseICalendar($icalData);
+					$parsedEvents = $this->parseICalendar($icalData, $sHref);
 					$events = array_merge($events, $parsedEvents);
 				}
 			}
