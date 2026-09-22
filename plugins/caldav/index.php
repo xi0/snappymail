@@ -4,7 +4,7 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 {
 	const
 		NAME     = 'Mailbux CalDAV Auto',
-		VERSION  = '1.1',
+		VERSION  = '1.2',
 		RELEASE  = '2025-11-13',
 		CATEGORY = 'Calendar',
 		DESCRIPTION = 'Auto-configures CalDAV calendar sync with JMAP support - switches per account',
@@ -12,8 +12,13 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 
 	private $lastConfiguredEmail = null;
 
+	private static $aTranslations = [];
+
 	public function Init() : void
 	{
+		// Load plugin translations from the langs folder (English + Danish)
+		$this->UseLangs(true);
+
 		// Self-configure CalDAV sync per account (no CardDAV dependency)
 		$this->addHook('login.success', 'AutoConfigureCalDAV');
 		$this->addHook('json.after-AccountSwitch', 'OnAfterAccountSwitch');
@@ -66,7 +71,48 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 				->SetDefaultValue(5)
 		);
 	}
-	
+
+	/**
+	 * Returns a translated string from the plugin's own langs/ folder.
+	 *
+	 * Only Danish ('da') has a dedicated translation; every other language falls
+	 * back to English. Values are loaded from langs/en.json and, for Danish,
+	 * langs/da.json (merged over the English defaults).
+	 *
+	 * @param string $sKey      key inside the "CALDAV" namespace
+	 * @param array  $aReplace  placeholder replacements, e.g. ['CODE' => 204]
+	 * @param string $sDefault  fallback when the key is missing
+	 */
+	private function msg(string $sKey, array $aReplace = [], string $sDefault = '') : string
+	{
+		$sLang = 'en';
+		if ($this->Manager()) {
+			$sLang = \strtolower(\substr((string) $this->Manager()->Actions()->GetLanguage(), 0, 2));
+			$sLang = ('da' === $sLang) ? 'da' : 'en';
+		}
+
+		if (!isset(self::$aTranslations[$sLang])) {
+			$aValues = [];
+			foreach (['en', $sLang] as $sFileLang) {
+				$sFile = $this->Path() . '/langs/' . $sFileLang . '.json';
+				if (\is_file($sFile)) {
+					$aData = \json_decode((string) \file_get_contents($sFile), true);
+					if (isset($aData['CALDAV']) && \is_array($aData['CALDAV'])) {
+						$aValues = \array_replace($aValues, $aData['CALDAV']);
+					}
+				}
+			}
+			self::$aTranslations[$sLang] = $aValues;
+		}
+
+		$sText = self::$aTranslations[$sLang][$sKey] ?? ($sDefault ?: $sKey);
+		foreach ($aReplace as $sName => $sValue) {
+			$sText = \str_replace('%' . $sName . '%', (string) $sValue, $sText);
+		}
+
+		return $sText;
+	}
+
 	/**
 	 * Called after AccountSwitch action completes.
 	 */
@@ -290,17 +336,17 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 		try {
 			$oAccount = $this->Manager()->Actions()->getAccountFromToken();
 			if (!$oAccount) {
-				return $this->jsonResponse(__FUNCTION__, ['calendars' => [], 'message' => 'Please log in first']);
+				return $this->jsonResponse(__FUNCTION__, ['calendars' => [], 'message' => $this->msg('ERROR_NOT_LOGGED_IN', [], 'Please log in first')]);
 			}
 			
 			$aConfig = $this->getCalendarConfig($oAccount);
 			if (!$aConfig) {
-				return $this->jsonResponse(__FUNCTION__, ['calendars' => [], 'message' => 'Calendar not configured yet. Please check settings.']);
+				return $this->jsonResponse(__FUNCTION__, ['calendars' => [], 'message' => $this->msg('ERROR_NOT_CONFIGURED_MSG', [], 'Calendar not configured yet. Please check settings.')]);
 			}
 			
 			$sPassword = $this->getDecryptedPassword($aConfig);
 			if (null === $sPassword) {
-				return $this->jsonResponse(__FUNCTION__, ['calendars' => [], 'error' => 'Cannot access encryption key']);
+				return $this->jsonResponse(__FUNCTION__, ['calendars' => [], 'error' => $this->msg('ERROR_NO_ENCRYPTION_KEY', [], 'Cannot access encryption key')]);
 			}
 			
 			// PROPFIND the calendar home to discover the collections
@@ -334,7 +380,7 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 			// Always provide at least one usable calendar so the UI keeps working
 			if (!$aCalendars) {
 				$aCalendars = [
-					['id' => 'default', 'name' => 'Calendar', 'color' => '#00639a']
+					['id' => 'default', 'name' => $this->msg('CALENDAR', [], 'Calendar'), 'color' => '#00639a']
 				];
 			}
 			
@@ -561,19 +607,19 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 		try {
 			$oAccount = $this->Manager()->Actions()->getAccountFromToken();
 			if (!$oAccount) {
-				return $this->jsonResponse(__FUNCTION__, ['events' => [], 'message' => 'Please log in first']);
+				return $this->jsonResponse(__FUNCTION__, ['events' => [], 'message' => $this->msg('ERROR_NOT_LOGGED_IN', [], 'Please log in first')]);
 			}
 			
 			// Get config from this plugin's own calendar_sync storage
 			$aConfig = $this->getCalendarConfig($oAccount);
 			if (!$aConfig) {
-				return $this->jsonResponse(__FUNCTION__, ['events' => [], 'message' => 'Calendar not configured yet. Please check settings.']);
+				return $this->jsonResponse(__FUNCTION__, ['events' => [], 'message' => $this->msg('ERROR_NOT_CONFIGURED_MSG', [], 'Calendar not configured yet. Please check settings.')]);
 			}
 			
 			// Decrypt password using MAIN account's CryptKey
 			$oMainAccount = $this->Manager()->Actions()->GetMainAccountFromToken();
 			if (!$oMainAccount || !method_exists($oMainAccount, 'CryptKey')) {
-				return $this->jsonResponse(__FUNCTION__, ['events' => [], 'error' => 'Cannot access encryption key']);
+				return $this->jsonResponse(__FUNCTION__, ['events' => [], 'error' => $this->msg('ERROR_NO_ENCRYPTION_KEY', [], 'Cannot access encryption key')]);
 			}
 			
 			$sCryptKey = $oMainAccount->CryptKey();
@@ -620,7 +666,7 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 			} else {
 			}
 			
-			return $this->jsonResponse(__FUNCTION__, ['events' => $aEvents, 'message' => 'Loaded ' . count($aEvents) . ' events']);
+			return $this->jsonResponse(__FUNCTION__, ['events' => $aEvents, 'message' => $this->msg('LOADED_EVENTS', ['COUNT' => count($aEvents)], 'Loaded ' . count($aEvents) . ' events')]);
 			
 		} catch (\Exception $e) {
 			return $this->jsonResponse(__FUNCTION__, ['events' => [], 'error' => $e->getMessage()]);
@@ -636,14 +682,14 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 			
 			$oAccount = $this->Manager()->Actions()->getAccountFromToken();
 			if (!$oAccount) {
-				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => 'Not logged in']);
+				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_NOT_LOGGED_IN', [], 'Not logged in')]);
 			}
 			
 			
 			// Get config from this plugin's own calendar_sync storage
 			$aConfig = $this->getCalendarConfig($oAccount);
 			if (!$aConfig) {
-				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => 'Calendar not configured']);
+				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_NOT_CONFIGURED', [], 'Calendar not configured')]);
 			}
 			
 			
@@ -651,7 +697,7 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 			$oMainAccount = $this->Manager()->Actions()->GetMainAccountFromToken();
 			
 			if (!$oMainAccount || !method_exists($oMainAccount, 'CryptKey')) {
-				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => 'Cannot access encryption key']);
+				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_NO_ENCRYPTION_KEY', [], 'Cannot access encryption key')]);
 			}
 			
 			$sCryptKey = $oMainAccount->CryptKey();
@@ -673,7 +719,7 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 			
 			
 			if (empty($sTitle)) {
-				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => 'Event title required']);
+				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_TITLE_REQUIRED', [], 'Event title required')]);
 			}
 			
 			// Generate UID for event
@@ -735,7 +781,7 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 			if ($result['code'] === 201 || $result['code'] === 204) {
 				return $this->jsonResponse(__FUNCTION__, ['success' => true, 'uid' => $sUid]);
 			} else {
-				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => 'CalDAV error: ' . $result['code']]);
+				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_CALDAV', ['CODE' => $result['code']], 'CalDAV error: ' . $result['code'])]);
 			}
 			
 		} catch (\Exception $e) {
@@ -751,12 +797,12 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 		try {
 			$oAccount = $this->Manager()->Actions()->getAccountFromToken();
 			if (!$oAccount) {
-				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => 'Not logged in']);
+				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_NOT_LOGGED_IN', [], 'Not logged in')]);
 			}
 			
 			$aConfig = $this->getCalendarConfig($oAccount);
 			if (!$aConfig) {
-				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => 'Calendar not configured']);
+				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_NOT_CONFIGURED', [], 'Calendar not configured')]);
 			}
 			
 			$sEventId = $this->jsonParam('EventId', '');
@@ -767,7 +813,7 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 			$bAllDay = $this->jsonParam('AllDay', false);
 			
 			if (!$sEventId || !$sTitle) {
-				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => 'Event ID and title required']);
+				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_EVENT_ID_TITLE_REQUIRED', [], 'Event ID and title required')]);
 			}
 			
 			// Format dates
@@ -803,7 +849,7 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 			// Decrypt password using MAIN account's CryptKey
 			$oMainAccount = $this->Manager()->Actions()->GetMainAccountFromToken();
 			if (!$oMainAccount || !method_exists($oMainAccount, 'CryptKey')) {
-				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => 'Cannot access encryption key']);
+				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_NO_ENCRYPTION_KEY', [], 'Cannot access encryption key')]);
 			}
 			
 			$sCryptKey = $oMainAccount->CryptKey();
@@ -828,7 +874,7 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 			if ($result['code'] === 201 || $result['code'] === 204) {
 				return $this->jsonResponse(__FUNCTION__, ['success' => true]);
 			} else {
-				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => 'CalDAV error: ' . $result['code']]);
+				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_CALDAV', ['CODE' => $result['code']], 'CalDAV error: ' . $result['code'])]);
 			}
 			
 		} catch (\Exception $e) {
@@ -844,24 +890,24 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 		try {
 			$oAccount = $this->Manager()->Actions()->getAccountFromToken();
 			if (!$oAccount) {
-				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => 'Not logged in']);
+				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_NOT_LOGGED_IN', [], 'Not logged in')]);
 			}
 			
 			$aConfig = $this->getCalendarConfig($oAccount);
 			if (!$aConfig) {
-				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => 'Calendar not configured']);
+				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_NOT_CONFIGURED', [], 'Calendar not configured')]);
 			}
 			
 			$sEventId = $this->jsonParam('EventId', '');
 			$sCalendarId = $this->jsonParam('CalendarId', 'default');
 			if (!$sEventId) {
-				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => 'Event ID required']);
+				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_EVENT_ID_REQUIRED', [], 'Event ID required')]);
 			}
 			
 			// Decrypt password using MAIN account's CryptKey
 			$oMainAccount = $this->Manager()->Actions()->GetMainAccountFromToken();
 			if (!$oMainAccount || !method_exists($oMainAccount, 'CryptKey')) {
-				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => 'Cannot access encryption key']);
+				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_NO_ENCRYPTION_KEY', [], 'Cannot access encryption key')]);
 			}
 			
 			$sCryptKey = $oMainAccount->CryptKey();
@@ -887,7 +933,7 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 			if ($result['code'] === 204 || $result['code'] === 200) {
 				return $this->jsonResponse(__FUNCTION__, ['success' => true]);
 			} else {
-				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => 'CalDAV error: ' . $result['code']]);
+				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_CALDAV', ['CODE' => $result['code']], 'CalDAV error: ' . $result['code'])]);
 			}
 			
 		} catch (\Exception $e) {

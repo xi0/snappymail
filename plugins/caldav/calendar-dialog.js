@@ -4,11 +4,15 @@
 (() => {
 'use strict';
 
-const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-// Display order for week/month views (Monday first)
-const WEEKDAYS_MON = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
+// English defaults; actual labels are resolved through rl.i18n (CALDAV namespace)
+// so they follow the user's SnappyMail language (Danish or English).
+const DEFAULT_WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const DEFAULT_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
 	'July', 'August', 'September', 'October', 'November', 'December'];
+const WEEKDAYS = DEFAULT_WEEKDAYS.map((name, index) => t('CALDAV/WEEKDAY_' + index, name));
+// Display order for week/month views (Monday first)
+const WEEKDAYS_MON = [1, 2, 3, 4, 5, 6, 0].map(index => WEEKDAYS[index]);
+const MONTHS = DEFAULT_MONTHS.map((name, index) => t('CALDAV/MONTH_' + (index + 1), name));
 const HOUR_PX = 44;
 
 const state = {
@@ -25,13 +29,22 @@ let dialogEl = null;
 
 /* ------------------------------------------------------------------ utils */
 
-function t(key, fallback) {
+function t(key, fallback, params) {
+	let value = '';
 	try {
-		const v = (window.rl && rl.i18n) ? rl.i18n(key) : key;
-		return (v && v !== key) ? v : fallback;
+		value = (window.rl && rl.i18n) ? rl.i18n(key) : '';
 	} catch (e) {
-		return fallback;
+		value = '';
 	}
+	if (!value || value === key) {
+		value = fallback || '';
+	}
+	if (params) {
+		Object.keys(params).forEach(name => {
+			value = value.replace('%' + name + '%', params[name]);
+		});
+	}
+	return value;
 }
 
 function esc(value) {
@@ -106,12 +119,12 @@ function parseDate(value) {
 function request(action, params) {
 	return new Promise((resolve, reject) => {
 		if (!window.rl || typeof rl.pluginRemoteRequest !== 'function') {
-			reject(new Error('Remote not available'));
+			reject(new Error(t('CALDAV/REMOTE_NOT_AVAILABLE', 'Remote not available')));
 			return;
 		}
 		rl.pluginRemoteRequest((iError, oData) => {
 			if (iError || !oData || !oData.Result) {
-				reject(new Error((oData && (oData.message || oData.error)) || 'Request failed'));
+				reject(new Error((oData && (oData.message || oData.error)) || t('CALDAV/REQUEST_FAILED', 'Request failed')));
 			} else {
 				resolve(oData.Result);
 			}
@@ -143,10 +156,10 @@ function setupButton() {
 		return;
 	}
 	btn.dataset.calendarBound = '1';
-	btn.title = t('SETTINGS_FOLDERS/TYPE_CALENDAR', 'Calendar');
-	if (!btn.getAttribute('data-i18n')) {
-		btn.setAttribute('data-i18n', '[title]SETTINGS_FOLDERS/TYPE_CALENDAR');
-	}
+	// Use the plugin's own key so the tooltip follows the language too
+	// (the core template ships this button with an English-only core key).
+	btn.title = t('CALDAV/CALENDAR', 'Calendar');
+	btn.setAttribute('data-i18n', '[title]CALDAV/CALENDAR');
 	btn.addEventListener('click', event => {
 		event.preventDefault();
 		openDialog();
@@ -187,7 +200,16 @@ function buildDialog() {
 			</div>
 		</div>`;
 
-	dialogEl.querySelector('.mc-title-text').textContent = t('SETTINGS_FOLDERS/TYPE_CALENDAR', 'Calendar');
+	const q = selector => dialogEl.querySelector(selector);
+	q('[data-cal-nav="prev"]').title = t('CALDAV/PREVIOUS', 'Previous');
+	q('[data-cal-nav="today"]').textContent = t('CALDAV/TODAY', 'Today');
+	q('[data-cal-nav="next"]').title = t('CALDAV/NEXT', 'Next');
+	q('[data-cal-view="day"]').textContent = t('CALDAV/DAY', 'Day');
+	q('[data-cal-view="week"]').textContent = t('CALDAV/WEEK', 'Week');
+	q('[data-cal-view="month"]').textContent = t('CALDAV/MONTH', 'Month');
+	q('.mc-sidebar-title').textContent = t('CALDAV/CALENDARS', 'Calendars');
+	q('.mc-close').setAttribute('aria-label', t('CALDAV/CLOSE', 'Close'));
+	q('.mc-title-text').textContent = t('CALDAV/CALENDAR', 'Calendar');
 
 	dialogEl.addEventListener('click', event => {
 		const target = event.target;
@@ -265,13 +287,13 @@ async function loadCalendars() {
 		const result = await request('GetCalendars', {});
 		let calendars = (result && result.calendars) || [];
 		if (!calendars.length) {
-			calendars = [{id: 'default', name: 'Calendar', color: '#00639a'}];
+			calendars = [{id: 'default', name: t('CALDAV/CALENDAR', 'Calendar'), color: '#00639a'}];
 		}
 		state.calendars = calendars;
 		state.selected = new Set(calendars.map(c => c.id));
 		await loadEvents();
 	} catch (e) {
-		state.error = (e && e.message) || 'Failed to load calendars';
+		state.error = (e && e.message) || t('CALDAV/FAILED_LOAD_CALENDARS', 'Failed to load calendars');
 	}
 	state.loading = false;
 	renderSidebar();
@@ -310,7 +332,7 @@ function normalizeEvent(raw, calendar) {
 	return {
 		id: raw.uid || ('event-' + Math.random().toString(36).slice(2)),
 		calendarId: calendar.id,
-		title: raw.summary || 'Untitled',
+		title: raw.summary || t('CALDAV/UNTITLED', 'Untitled'),
 		start: start,
 		end: parseDate(raw.dtend || raw.end),
 		allDay: !!raw.allDay,
@@ -348,7 +370,9 @@ function renderSidebar() {
 	}
 	const list = dialogEl.querySelector('.mc-cal-list');
 	if (!state.calendars.length) {
-		list.innerHTML = '<div class="mc-sidebar-empty">' + (state.loading ? 'Loading…' : 'No calendars') + '</div>';
+		list.innerHTML = '<div class="mc-sidebar-empty">'
+			+ esc(state.loading ? t('CALDAV/LOADING', 'Loading…') : t('CALDAV/NO_CALENDARS', 'No calendars'))
+			+ '</div>';
 		return;
 	}
 	list.innerHTML = state.calendars.map(calendar =>
@@ -373,7 +397,9 @@ function renderContent() {
 	period.textContent = periodLabel();
 
 	if (state.loading) {
-		content.innerHTML = '<div class="mc-info"><div class="mc-spinner"></div><p>Loading…</p></div>';
+		content.innerHTML = '<div class="mc-info"><div class="mc-spinner"></div><p>'
+			+ esc(t('CALDAV/LOADING', 'Loading…'))
+			+ '</p></div>';
 		return;
 	}
 	if (state.error) {
@@ -434,7 +460,9 @@ function renderMonth(content) {
 				+ esc(event.title) + '</div>';
 		});
 		if (dayEvents.length > 3) {
-			html += '<div class="mc-event-more">+' + (dayEvents.length - 3) + ' more</div>';
+			html += '<div class="mc-event-more">'
+				+ esc(t('CALDAV/MORE', '+%COUNT% more', {COUNT: dayEvents.length - 3}))
+				+ '</div>';
 		}
 		html += '</div></div>';
 	}
