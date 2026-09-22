@@ -7,13 +7,61 @@
 // English defaults; actual labels are resolved through rl.i18n (CALDAV namespace)
 // so they follow the user's SnappyMail language (Danish or English).
 const DEFAULT_WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const DEFAULT_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
-	'July', 'August', 'September', 'October', 'November', 'December'];
-const WEEKDAYS = DEFAULT_WEEKDAYS.map((name, index) => t('CALDAV/WEEKDAY_' + index, name));
+const HOUR_PX = 44;
+
+// SnappyMail exposes the configured locale (documentElement.lang /
+// dataset.dateLang) and the user's hour format (the `hourCycle` setting).
+// Reuse the exact same formatting helper SnappyMail core uses so calendar
+// dates and times are rendered like the rest of the webmail.
+function snappyLocale() {
+	const el = document.documentElement;
+	return (el && (el.dataset.dateLang || el.lang)) || undefined;
+}
+
+function snappyHourCycle() {
+	try {
+		return (window.rl && rl.settings && rl.settings.get) ? (rl.settings.get('hourCycle') || '') : '';
+	} catch (e) {
+		return '';
+	}
+}
+
+// Mirrors SnappyMail's Date.prototype.format()/timestampToString() behaviour.
+function formatDate(date, options) {
+	try {
+		if (typeof Date.prototype.format === 'function') {
+			return date.format(options, 0, snappyHourCycle());
+		}
+		const opts = Object.assign({}, options);
+		const hourCycle = snappyHourCycle();
+		if (hourCycle) {
+			opts.hourCycle = hourCycle;
+		}
+		return date.toLocaleString(snappyLocale(), opts);
+	} catch (e) {
+		// Some engines reject certain hourCycle values - fall back to plain locale formatting
+		return (options.hour || options.minute)
+			? date.toLocaleTimeString(snappyLocale(), options)
+			: date.toLocaleDateString(snappyLocale(), options);
+	}
+}
+
+// Localized weekday/month names, following SnappyMail's language. Falls back to
+// the plugin's own translations when Intl is not available.
+function localizedWeekdayNames() {
+	return DEFAULT_WEEKDAYS.map((name, index) => {
+		try {
+			// 2024-01-07 is a Sunday
+			return new Intl.DateTimeFormat(snappyLocale(), {weekday: 'short'}).format(new Date(2024, 0, 7 + index));
+		} catch (e) {
+			return t('CALDAV/WEEKDAY_' + index, name);
+		}
+	});
+}
+
+const WEEKDAYS = localizedWeekdayNames();
 // Display order for week/month views (Monday first)
 const WEEKDAYS_MON = [1, 2, 3, 4, 5, 6, 0].map(index => WEEKDAYS[index]);
-const MONTHS = DEFAULT_MONTHS.map((name, index) => t('CALDAV/MONTH_' + (index + 1), name));
-const HOUR_PX = 44;
 
 // The selected view is remembered per browser so the calendar reopens with the
 // user's last choice. Week is the default when nothing has been stored yet.
@@ -104,11 +152,17 @@ function sameDay(a, b) {
 }
 
 function timeLabel(date) {
-	return date.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+	// SnappyMail's "LT" format ({hour:'numeric', minute:'numeric'}) + hourCycle
+	return formatDate(date, {hour: 'numeric', minute: 'numeric'});
+}
+
+// Time-axis label for a given hour (0-23), following SnappyMail's time format
+function hourLabel(hour) {
+	return formatDate(new Date(2024, 0, 1, hour, 0), {hour: 'numeric', minute: 'numeric'});
 }
 
 function shortDate(date) {
-	return MONTHS[date.getMonth()].slice(0, 3) + ' ' + date.getDate();
+	return formatDate(date, {month: 'short', day: 'numeric'});
 }
 
 function eventEnd(event) {
@@ -862,13 +916,14 @@ function renderContent() {
 function periodLabel() {
 	const cursor = state.cursor;
 	if (state.view === 'month') {
-		return MONTHS[cursor.getMonth()] + ' ' + cursor.getFullYear();
+		return formatDate(cursor, {month: 'long', year: 'numeric'});
 	}
 	if (state.view === 'day') {
-		return WEEKDAYS[cursor.getDay()] + ', ' + MONTHS[cursor.getMonth()] + ' ' + cursor.getDate() + ', ' + cursor.getFullYear();
+		return formatDate(cursor, {weekday: 'long', month: 'long', day: 'numeric', year: 'numeric'});
 	}
 	const start = startOfWeek(cursor);
-	return shortDate(start) + ' – ' + shortDate(addDays(start, 6)) + ', ' + addDays(start, 6).getFullYear();
+	const end = addDays(start, 6);
+	return shortDate(start) + ' – ' + shortDate(end) + ', ' + end.getFullYear();
 }
 
 function renderMonth(content) {
@@ -923,7 +978,7 @@ function renderTimeGrid(content, days, singleDay) {
 	html += '<div class="mc-timecol">';
 	html += '<div class="mc-timecol-head"></div><div class="mc-timecol-body">';
 	for (let h = 0; h < 24; h++) {
-		html += '<div class="mc-timeslot"><span>' + (h ? String(h).padStart(2, '0') + ':00' : '') + '</span></div>';
+		html += '<div class="mc-timeslot"><span>' + (h ? esc(hourLabel(h)) : '') + '</span></div>';
 	}
 	html += '</div></div>';
 
@@ -937,7 +992,7 @@ function renderTimeGrid(content, days, singleDay) {
 		html += '<div class="mc-daycol-datenum">';
 		if (singleDay) {
 			html += '<span class="mc-daycol-name">' + WEEKDAYS[day.getDay()] + '</span>';
-			html += '<span class="mc-daycol-num">' + MONTHS[day.getMonth()] + ' ' + day.getDate() + ', ' + day.getFullYear() + '</span>';
+			html += '<span class="mc-daycol-num">' + formatDate(day, {month: 'long', day: 'numeric', year: 'numeric'}) + '</span>';
 		} else {
 			html += '<span class="mc-daycol-name">' + WEEKDAYS[day.getDay()] + '</span>';
 			html += '<span class="mc-daycol-num">' + day.getDate() + '</span>';
