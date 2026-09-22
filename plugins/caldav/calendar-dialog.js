@@ -15,11 +15,17 @@ const WEEKDAYS_MON = [1, 2, 3, 4, 5, 6, 0].map(index => WEEKDAYS[index]);
 const MONTHS = DEFAULT_MONTHS.map((name, index) => t('CALDAV/MONTH_' + (index + 1), name));
 const HOUR_PX = 44;
 
+// The selected view is remembered per browser so the calendar reopens with the
+// user's last choice. Week is the default when nothing has been stored yet.
+const VIEW_STORAGE_KEY = 'caldav.view';
+const VIEW_DEFAULT = 'week';
+const VIEWS = ['day', 'week', 'month'];
+
 const state = {
 	calendars: [],
 	selected: new Set(),
 	events: [],
-	view: 'month',
+	view: loadSavedView(),
 	cursor: startOfDay(new Date()),
 	loading: false,
 	error: ''
@@ -28,6 +34,26 @@ const state = {
 let dialogEl = null;
 
 /* ------------------------------------------------------------------ utils */
+
+function loadSavedView() {
+	try {
+		const view = window.localStorage.getItem(VIEW_STORAGE_KEY);
+		return VIEWS.includes(view) ? view : VIEW_DEFAULT;
+	} catch (e) {
+		// Storage unavailable (private mode / disabled) - fall back to the default
+		return VIEW_DEFAULT;
+	}
+}
+
+function saveView(view) {
+	try {
+		if (VIEWS.includes(view)) {
+			window.localStorage.setItem(VIEW_STORAGE_KEY, view);
+		}
+	} catch (e) {
+		// Ignore storage errors; the view still works for the current session
+	}
+}
 
 function t(key, fallback, params) {
 	let value = '';
@@ -225,6 +251,7 @@ function buildDialog() {
 		const view = target.closest('[data-cal-view]');
 		if (view) {
 			state.view = view.dataset.calView;
+			saveView(state.view);
 			renderContent();
 			return;
 		}
