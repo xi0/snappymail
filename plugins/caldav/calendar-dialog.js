@@ -80,6 +80,9 @@ const state = {
 };
 
 let dialogEl = null;
+// Custom date/time pickers used by the event form (built in buildDialog)
+let startPicker = null;
+let endPicker = null;
 
 /* ------------------------------------------------------------------ utils */
 
@@ -203,27 +206,260 @@ function dateInputValue(date) {
 	return date.getFullYear() + '-' + pad2(date.getMonth() + 1) + '-' + pad2(date.getDate());
 }
 
-// Format a Date as the value of an <input type="datetime-local"> (local time)
-function timeInputValue(date) {
-	return dateInputValue(date) + 'T' + pad2(date.getHours()) + ':' + pad2(date.getMinutes());
-}
-
-// Parse an <input type="date"> value into a local midnight Date
+// Parse an ISO YYYY-MM-DD value (used by the calendar grid data attributes)
 function parseInputDate(value) {
 	const m = ('' + value).match(/^(\d{4})-(\d{2})-(\d{2})$/);
 	return m ? new Date(+m[1], +m[2] - 1, +m[3]) : null;
-}
-
-// Parse an <input type="datetime-local"> value into a local Date
-function parseInputDateTime(value) {
-	const d = new Date(value);
-	return isNaN(d.getTime()) ? null : d;
 }
 
 // Next full hour (used as the default start for a new timed event)
 function nextHour() {
 	const now = new Date();
 	return new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours() + 1, 0, 0, 0);
+}
+
+/* ---------------------------------------------- custom date/time picker */
+
+// The event form must always show DD-MM-YYYY and a 24-hour time, regardless of
+// the browser locale or the SnappyMail hour-format setting. Native
+// <input type="date"> / <input type="datetime-local"> follow the locale, so the
+// form uses this small self-contained picker instead.
+
+// Format a Date as DD-MM-YYYY for the visible input.
+function formatDisplayDate(date) {
+	return pad2(date.getDate()) + '-' + pad2(date.getMonth() + 1) + '-' + date.getFullYear();
+}
+
+// Parse a DD-MM-YYYY string (also tolerates DD/MM/YYYY, DD.MM.YYYY and
+// YYYY-MM-DD) into a local midnight Date, or null when invalid.
+function parseDisplayDate(text) {
+	const str = ('' + (text == null ? '' : text)).trim();
+	if (!str) {
+		return null;
+	}
+	let day;
+	let month;
+	let year;
+	let m = str.match(/^(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{4})$/);
+	if (m) {
+		day = +m[1];
+		month = +m[2];
+		year = +m[3];
+	} else {
+		m = str.match(/^(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})$/);
+		if (!m) {
+			return null;
+		}
+		year = +m[1];
+		month = +m[2];
+		day = +m[3];
+	}
+	if (month < 1 || month > 12 || day < 1 || day > 31) {
+		return null;
+	}
+	const d = new Date(year, month - 1, day);
+	if (d.getFullYear() !== year || d.getMonth() !== month - 1 || d.getDate() !== day) {
+		return null;
+	}
+	return d;
+}
+
+// A custom combined date + time picker (DD-MM-YYYY, 24-hour).
+function createDateTimePicker() {
+	const root = document.createElement('div');
+	root.className = 'mc-dtp';
+	root.innerHTML =
+		'<div class="mc-dtp-fields">'
+		+ '<span class="mc-dtp-date-wrap">'
+		+ '<input type="text" class="mc-dtp-date" inputmode="numeric" maxlength="10" autocomplete="off" spellcheck="false" placeholder="DD-MM-YYYY" aria-label="' + esc(t('CALDAV/DATE', 'Date')) + '">'
+		+ '<button type="button" class="mc-dtp-cal-btn" tabindex="-1" aria-label="' + esc(t('CALDAV/PICK_DATE', 'Pick a date')) + '">📅</button>'
+		+ '</span>'
+		+ '<span class="mc-dtp-time-wrap">'
+		+ '<select class="mc-dtp-hour" aria-label="' + esc(t('CALDAV/HOUR', 'Hour')) + '"></select>'
+		+ '<span class="mc-dtp-time-sep">:</span>'
+		+ '<select class="mc-dtp-minute" aria-label="' + esc(t('CALDAV/MINUTE', 'Minute')) + '"></select>'
+		+ '</span>'
+		+ '</div>'
+		+ '<div class="mc-dtp-popup" hidden></div>';
+
+	const dateInput = root.querySelector('.mc-dtp-date');
+	const calBtn = root.querySelector('.mc-dtp-cal-btn');
+	const hourSel = root.querySelector('.mc-dtp-hour');
+	const minuteSel = root.querySelector('.mc-dtp-minute');
+	const timeWrap = root.querySelector('.mc-dtp-time-wrap');
+	const popup = root.querySelector('.mc-dtp-popup');
+
+	// Force the 24-hour lists - no locale/hour-format involvement.
+	for (let h = 0; h < 24; h++) {
+		hourSel.appendChild(new Option(pad2(h), String(h)));
+	}
+	for (let mi = 0; mi < 60; mi++) {
+		minuteSel.appendChild(new Option(pad2(mi), String(mi)));
+	}
+
+	// Local date + time kept independently of the DOM so parsing cannot drift.
+	let value = nextHour();
+	let viewYear = value.getFullYear();
+	let viewMonth = value.getMonth();
+
+	function readTime() {
+		return {h: +hourSel.value, m: +minuteSel.value};
+	}
+
+	function syncFromValue() {
+		dateInput.value = formatDisplayDate(value);
+		dateInput.classList.remove('mc-dtp-invalid');
+		hourSel.value = String(value.getHours());
+		minuteSel.value = String(value.getMinutes());
+	}
+
+	function commitDateInput() {
+		const parsed = parseDisplayDate(dateInput.value);
+		if (parsed) {
+			value = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate(), value.getHours(), value.getMinutes());
+			dateInput.value = formatDisplayDate(value);
+			dateInput.classList.remove('mc-dtp-invalid');
+		} else {
+			dateInput.classList.add('mc-dtp-invalid');
+		}
+	}
+
+	dateInput.addEventListener('change', commitDateInput);
+	dateInput.addEventListener('blur', commitDateInput);
+
+	hourSel.addEventListener('change', () => {
+		value = new Date(value.getFullYear(), value.getMonth(), value.getDate(), +hourSel.value, value.getMinutes());
+	});
+	minuteSel.addEventListener('change', () => {
+		value = new Date(value.getFullYear(), value.getMonth(), value.getDate(), value.getHours(), +minuteSel.value);
+	});
+
+	function renderPopup() {
+		const first = new Date(viewYear, viewMonth, 1);
+		const gridStart = addDays(first, -((first.getDay() + 6) % 7));
+		const today = startOfDay(new Date());
+		const selected = parseDisplayDate(dateInput.value);
+
+		let html = '<div class="mc-dtp-pop-head">'
+			+ '<button type="button" class="mc-dtp-pop-nav" data-dtp-nav="-1" aria-label="' + esc(t('CALDAV/PREVIOUS', 'Previous')) + '">‹</button>'
+			+ '<span class="mc-dtp-pop-title">' + esc(formatDate(first, {month: 'long', year: 'numeric'})) + '</span>'
+			+ '<button type="button" class="mc-dtp-pop-nav" data-dtp-nav="1" aria-label="' + esc(t('CALDAV/NEXT', 'Next')) + '">›</button>'
+			+ '</div><div class="mc-dtp-pop-grid">';
+		WEEKDAYS_MON.forEach(name => {
+			html += '<div class="mc-dtp-pop-dow">' + esc(name) + '</div>';
+		});
+		for (let i = 0; i < 42; i++) {
+			const day = addDays(gridStart, i);
+			const classes = ['mc-dtp-pop-day'];
+			if (day.getMonth() !== viewMonth) {
+				classes.push('mc-other');
+			}
+			if (selected && sameDay(day, selected)) {
+				classes.push('mc-selected');
+			} else if (sameDay(day, today)) {
+				classes.push('mc-today');
+			}
+			html += '<button type="button" class="' + classes.join(' ') + '" data-dtp-day="' + dateInputValue(day) + '">' + day.getDate() + '</button>';
+		}
+		html += '</div>';
+		popup.innerHTML = html;
+	}
+
+	function onDocDown(event) {
+		if (!root.contains(event.target)) {
+			closePopup();
+		}
+	}
+
+	function closePopup() {
+		popup.hidden = true;
+		document.removeEventListener('mousedown', onDocDown, true);
+		window.removeEventListener('resize', closePopup);
+		document.removeEventListener('scroll', closePopup, true);
+	}
+
+	function openPopup() {
+		const current = parseDisplayDate(dateInput.value) || value;
+		viewYear = current.getFullYear();
+		viewMonth = current.getMonth();
+		renderPopup();
+		popup.hidden = false;
+
+		// Position with fixed coordinates so the dialog's scroll container
+		// cannot clip the popup.
+		const rect = dateInput.getBoundingClientRect();
+		const popupWidth = 250;
+		let left = rect.left;
+		if (left + popupWidth > window.innerWidth - 8) {
+			left = window.innerWidth - popupWidth - 8;
+		}
+		popup.style.left = Math.max(8, left) + 'px';
+		popup.style.top = (rect.bottom + 4) + 'px';
+
+		document.addEventListener('mousedown', onDocDown, true);
+		window.addEventListener('resize', closePopup);
+		document.addEventListener('scroll', closePopup, true);
+	}
+
+	calBtn.addEventListener('click', () => {
+		if (popup.hidden) {
+			openPopup();
+		} else {
+			closePopup();
+		}
+	});
+
+	popup.addEventListener('click', event => {
+		const nav = event.target.closest('[data-dtp-nav]');
+		if (nav) {
+			viewMonth += +nav.dataset.dtpNav;
+			if (viewMonth < 0) {
+				viewMonth = 11;
+				viewYear--;
+			} else if (viewMonth > 11) {
+				viewMonth = 0;
+				viewYear++;
+			}
+			renderPopup();
+			return;
+		}
+		const dayBtn = event.target.closest('[data-dtp-day]');
+		if (dayBtn) {
+			const picked = parseInputDate(dayBtn.dataset.dtpDay);
+			if (picked) {
+				value = new Date(picked.getFullYear(), picked.getMonth(), picked.getDate(), value.getHours(), value.getMinutes());
+				syncFromValue();
+			}
+			closePopup();
+		}
+	});
+
+	syncFromValue();
+
+	return {
+		element: root,
+		getValue() {
+			const parsed = parseDisplayDate(dateInput.value);
+			if (!parsed) {
+				return null;
+			}
+			const time = readTime();
+			return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate(), time.h, time.m);
+		},
+		setValue(date) {
+			if (!(date instanceof Date) || isNaN(date.getTime())) {
+				return;
+			}
+			value = new Date(date.getFullYear(), date.getMonth(), date.getDate(), date.getHours(), date.getMinutes());
+			syncFromValue();
+		},
+		setTimeVisible(visible) {
+			timeWrap.style.display = visible ? '' : 'none';
+		},
+		close() {
+			closePopup();
+		}
+	};
 }
 
 /* --------------------------------------------------------------- requests */
@@ -332,16 +568,14 @@ function buildDialog() {
 							<span class="mc-lbl-allday"></span>
 						</label>
 						<div class="mc-field-row">
-							<label class="mc-field">
+							<div class="mc-field">
 								<span class="mc-field-label mc-lbl-start"></span>
-								<input type="date" name="startDate">
-								<input type="datetime-local" name="startTime">
-							</label>
-							<label class="mc-field">
+								<div class="mc-dtp-host" data-cal-dtp="start"></div>
+							</div>
+							<div class="mc-field">
 								<span class="mc-field-label mc-lbl-end"></span>
-								<input type="date" name="endDate">
-								<input type="datetime-local" name="endTime">
-							</label>
+								<div class="mc-dtp-host" data-cal-dtp="end"></div>
+							</div>
 						</div>
 						<label class="mc-field">
 							<span class="mc-field-label mc-lbl-location"></span>
@@ -392,6 +626,13 @@ function buildDialog() {
 	q('[data-cal-save]').textContent = t('CALDAV/SAVE', 'Save');
 	q('.mc-form-title').textContent = t('CALDAV/NEW_EVENT', 'New event');
 	q('.mc-form-head .mc-close').setAttribute('aria-label', t('CALDAV/CLOSE', 'Close'));
+
+	// Custom date/time pickers (fixed DD-MM-YYYY + 24-hour format)
+	startPicker = createDateTimePicker();
+	endPicker = createDateTimePicker();
+	q('[data-cal-dtp="start"]').appendChild(startPicker.element);
+	q('[data-cal-dtp="end"]').appendChild(endPicker.element);
+
 	q('.mc-form-window').addEventListener('submit', saveEventForm);
 	q('[name="allday"]').addEventListener('change', () => toggleFormAllDay(eventFormEls()));
 	q('[data-cal-delete]').addEventListener('click', deleteEventForm);
@@ -517,6 +758,8 @@ function closeDialog() {
 			form.hidden = true;
 		}
 	}
+	startPicker && startPicker.close();
+	endPicker && endPicker.close();
 	editingEvent = null;
 	document.removeEventListener('keydown', onKeydown, true);
 }
@@ -604,10 +847,8 @@ function eventFormEls() {
 		title: root.querySelector('[name="title"]'),
 		calendar: root.querySelector('[name="calendar"]'),
 		allday: root.querySelector('[name="allday"]'),
-		startDate: root.querySelector('[name="startDate"]'),
-		startTime: root.querySelector('[name="startTime"]'),
-		endDate: root.querySelector('[name="endDate"]'),
-		endTime: root.querySelector('[name="endTime"]'),
+		start: startPicker,
+		end: endPicker,
 		location: root.querySelector('[name="location"]'),
 		description: root.querySelector('[name="description"]'),
 		error: root.querySelector('.mc-form-error'),
@@ -634,11 +875,14 @@ function defaultCalendarId() {
 }
 
 function toggleFormAllDay(el) {
+	// All-day events only need a date; hide the time part of the pickers.
 	const allDay = el.allday.checked;
-	el.startDate.style.display = allDay ? '' : 'none';
-	el.endDate.style.display = allDay ? '' : 'none';
-	el.startTime.style.display = allDay ? 'none' : '';
-	el.endTime.style.display = allDay ? 'none' : '';
+	if (el.start) {
+		el.start.setTimeVisible(!allDay);
+	}
+	if (el.end) {
+		el.end.setTimeVisible(!allDay);
+	}
 }
 
 function showFormError(el, message) {
@@ -675,9 +919,7 @@ function openEventForm(event, defaults) {
 		el.allday.checked = !!event.allDay;
 		const start = event.start || new Date();
 		const end = eventEnd(event);
-		el.startTime.value = timeInputValue(start);
-		el.endTime.value = timeInputValue(end && end > start ? end : new Date(start.getTime() + 3600000));
-		el.startDate.value = dateInputValue(start);
+		el.start.setValue(start);
 		if (event.allDay) {
 			// DTEND from the server is exclusive; show an inclusive end date
 			let inclusiveEnd = start;
@@ -687,9 +929,9 @@ function openEventForm(event, defaults) {
 					inclusiveEnd = start;
 				}
 			}
-			el.endDate.value = dateInputValue(inclusiveEnd);
+			el.end.setValue(inclusiveEnd);
 		} else {
-			el.endDate.value = dateInputValue(end && end > start ? end : start);
+			el.end.setValue(end && end > start ? end : new Date(start.getTime() + 3600000));
 		}
 	} else {
 		const d = defaults || {};
@@ -701,11 +943,9 @@ function openEventForm(event, defaults) {
 		el.location.value = '';
 		el.description.value = '';
 		el.allday.checked = allDay;
-		el.startTime.value = timeInputValue(start);
-		el.endTime.value = timeInputValue(allDay ? addDays(start, 1) : end);
-		el.startDate.value = dateInputValue(start);
+		el.start.setValue(start);
 		// All-day end is inclusive in the UI, exclusive internally
-		el.endDate.value = dateInputValue(allDay ? addDays(end, -1) : end);
+		el.end.setValue(allDay ? addDays(end, -1) : end);
 	}
 
 	toggleFormAllDay(el);
@@ -720,6 +960,8 @@ function closeEventForm() {
 			root.hidden = true;
 		}
 	}
+	startPicker && startPicker.close();
+	endPicker && endPicker.close();
 	editingEvent = null;
 }
 
@@ -740,12 +982,14 @@ async function saveEventForm(event) {
 	let endParam;
 
 	if (allDay) {
-		const startDate = parseInputDate(el.startDate.value);
-		let endDate = parseInputDate(el.endDate.value);
-		if (!startDate) {
+		const startValue = el.start.getValue();
+		if (!startValue) {
 			showFormError(el, t('CALDAV/ERROR_DATE_REQUIRED', 'Please choose a start date'));
 			return;
 		}
+		const startDate = startOfDay(startValue);
+		const endValue = el.end.getValue();
+		let endDate = endValue ? startOfDay(endValue) : null;
 		if (!endDate || endDate < startDate) {
 			endDate = startDate;
 		}
@@ -753,12 +997,12 @@ async function saveEventForm(event) {
 		// CalDAV DTEND is exclusive for all-day events
 		endParam = dateInputValue(addDays(endDate, 1));
 	} else {
-		const start = parseInputDateTime(el.startTime.value);
-		let end = parseInputDateTime(el.endTime.value);
+		const start = el.start.getValue();
 		if (!start) {
 			showFormError(el, t('CALDAV/ERROR_DATE_REQUIRED', 'Please choose a start date'));
 			return;
 		}
+		let end = el.end.getValue();
 		if (!end || end <= start) {
 			end = new Date(start.getTime() + 3600000);
 		}

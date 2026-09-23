@@ -632,6 +632,158 @@ html.rl-left-panel-disabled #rl-left .buttonCompose {
 	cursor: default;
 }
 
+/* ---- Custom date/time picker (event form) ---- */
+.mailbux-cal-dialog .mc-dtp {
+	position: relative;
+}
+
+.mailbux-cal-dialog .mc-dtp-fields {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.mailbux-cal-dialog .mc-dtp-date-wrap {
+	display: flex;
+	align-items: stretch;
+}
+
+.mailbux-cal-dialog .mc-dtp input.mc-dtp-date {
+	flex: 1 1 auto;
+	min-width: 0;
+	width: auto;
+	border-top-right-radius: 0;
+	border-bottom-right-radius: 0;
+}
+
+.mailbux-cal-dialog .mc-dtp .mc-dtp-cal-btn {
+	flex: 0 0 auto;
+	border: 1px solid #c9ced6;
+	border-left: none;
+	border-radius: 0 6px 6px 0;
+	background: #eef2f6;
+	color: #333;
+	cursor: pointer;
+	padding: 0 9px;
+	font-size: 14px;
+	line-height: 1;
+}
+
+.mailbux-cal-dialog .mc-dtp .mc-dtp-cal-btn:hover {
+	background: #e2e8ef;
+}
+
+.mailbux-cal-dialog .mc-dtp-time-wrap {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+}
+
+.mailbux-cal-dialog .mc-dtp select.mc-dtp-hour,
+.mailbux-cal-dialog .mc-dtp select.mc-dtp-minute {
+	width: auto;
+	flex: 0 0 auto;
+	padding: 7px 6px;
+}
+
+.mailbux-cal-dialog .mc-dtp-time-sep {
+	font-weight: 700;
+	color: #666;
+}
+
+.mailbux-cal-dialog .mc-dtp input.mc-dtp-date.mc-dtp-invalid {
+	border-color: #e9322d;
+	box-shadow: 0 0 0 2px rgba(233, 50, 45, 0.2);
+}
+
+.mailbux-cal-dialog .mc-dtp-popup {
+	position: fixed;
+	z-index: 10070;
+	width: 250px;
+	box-sizing: border-box;
+	background: #ffffff;
+	color: #1a1a1a;
+	border: 1px solid #d0d5dc;
+	border-radius: 8px;
+	box-shadow: 0 8px 26px rgba(0, 0, 0, 0.25);
+	padding: 8px;
+}
+
+.mailbux-cal-dialog .mc-dtp-popup[hidden] {
+	display: none;
+}
+
+.mailbux-cal-dialog .mc-dtp-pop-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	margin-bottom: 6px;
+}
+
+.mailbux-cal-dialog .mc-dtp-pop-title {
+	font-size: 14px;
+	font-weight: 600;
+}
+
+.mailbux-cal-dialog .mc-dtp-pop-nav {
+	border: none;
+	background: transparent;
+	color: inherit;
+	cursor: pointer;
+	font-size: 18px;
+	line-height: 1;
+	padding: 2px 9px;
+	border-radius: 5px;
+}
+
+.mailbux-cal-dialog .mc-dtp-pop-nav:hover {
+	background: #eef2f6;
+}
+
+.mailbux-cal-dialog .mc-dtp-pop-grid {
+	display: grid;
+	grid-template-columns: repeat(7, 1fr);
+	gap: 2px;
+}
+
+.mailbux-cal-dialog .mc-dtp-pop-dow {
+	text-align: center;
+	font-size: 11px;
+	font-weight: 600;
+	color: #8c8c8c;
+	padding: 3px 0;
+}
+
+.mailbux-cal-dialog .mc-dtp-pop-day {
+	border: none;
+	background: transparent;
+	color: inherit;
+	cursor: pointer;
+	font: inherit;
+	font-size: 13px;
+	padding: 5px 0;
+	border-radius: 5px;
+}
+
+.mailbux-cal-dialog .mc-dtp-pop-day:hover {
+	background: #eef2f6;
+}
+
+.mailbux-cal-dialog .mc-dtp-pop-day.mc-other {
+	color: #b5b5b5;
+}
+
+.mailbux-cal-dialog .mc-dtp-pop-day.mc-today {
+	color: #00639a;
+	font-weight: 700;
+}
+
+.mailbux-cal-dialog .mc-dtp-pop-day.mc-selected {
+	background: #00639a;
+	color: #fff;
+	font-weight: 600;
+}
+
 /* ---- Responsive & dark mode ---- */
 @media (max-width: 720px) {
 	.mailbux-cal-dialog .mc-window {
@@ -762,5 +914,41 @@ html.rl-left-panel-disabled #rl-left .buttonCompose {
 		background: #1f1f1f;
 		border-color: #e9322d;
 		color: #ff9b95;
+	}
+	.mailbux-cal-dialog .mc-dtp .mc-dtp-cal-btn {
+		background: #2c2c2c;
+		border-color: #444;
+		color: #ddd;
+	}
+	.mailbux-cal-dialog .mc-dtp .mc-dtp-cal-btn:hover {
+		background: #383838;
+	}
+	.mailbux-cal-dialog .mc-dtp select.mc-dtp-hour,
+	.mailbux-cal-dialog .mc-dtp select.mc-dtp-minute {
+		background: #2a2a2a;
+		border-color: #444;
+		color: #e6e6e6;
+	}
+	.mailbux-cal-dialog .mc-dtp-time-sep {
+		color: #a8a8a8;
+	}
+	.mailbux-cal-dialog .mc-dtp-popup {
+		background: #1f1f1f;
+		color: #d8d8d8;
+		border-color: #3b3b3b;
+	}
+	.mailbux-cal-dialog .mc-dtp-pop-nav:hover,
+	.mailbux-cal-dialog .mc-dtp-pop-day:hover {
+		background: #2c2c2c;
+	}
+	.mailbux-cal-dialog .mc-dtp-pop-day.mc-other {
+		color: #6f6f6f;
+	}
+	.mailbux-cal-dialog .mc-dtp-pop-day.mc-today {
+		color: #4fb3e8;
+	}
+	.mailbux-cal-dialog .mc-dtp-pop-day.mc-selected {
+		background: #00639a;
+		color: #fff;
 	}
 }
