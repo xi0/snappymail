@@ -48,6 +48,17 @@ The event form lets you pick any of the discovered **calendars** from the dropdo
 
 ---
 
+## 📨 Calendar invites
+
+When a received mail contains a calendar invite (an `.ics` / `text/calendar` attachment), an invite box is shown at the top of the message with the event details and two options:
+
+- **Add to calendar** — asks for confirmation, lets you pick one of your calendars, and stores the event on your CalDAV server.
+- **Accept / Tentative / Decline** — sends a proper iTIP `METHOD:REPLY` response to the organizer from your account and, when the event was added, updates your participant status (PARTSTAT) on the stored event.
+
+This behaviour can be turned off with the **Calendar invites** option in the plugin settings.
+
+---
+
 ## 🛠️ Installation
 
 1. Download or clone this repository.  

@@ -1,6 +1,87 @@
 /* Mailbux CalDAV Auto - Calendar Styles */
 
 /* ==================================================================
+   Calendar invite (received .ics attachment) - message.js
+   ================================================================== */
+#messageItem .bodySubHeader > .caldavInvite {
+	margin: 8px 10px;
+	border: 1px solid #cfe3f0;
+	border-left: 4px solid #00639a;
+	border-radius: 6px;
+	background: #f2f8fc;
+	padding: 8px 12px;
+	color: #1a1a1a;
+	cursor: default;
+}
+
+#messageItem .caldavInvite > details > summary {
+	cursor: pointer;
+	font-weight: 600;
+	display: flex;
+	align-items: center;
+	gap: 4px;
+}
+
+#messageItem .caldavInviteInfo {
+	border-collapse: collapse;
+	margin: 8px 0;
+	font-size: 90%;
+	white-space: pre-wrap;
+}
+
+#messageItem .caldavInviteInfo td {
+	padding: 1px 6px 1px 0;
+	vertical-align: top;
+}
+
+#messageItem .caldavInviteInfo td:first-child {
+	color: #666;
+	white-space: nowrap;
+}
+
+#messageItem .caldavInviteActions {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-top: 6px;
+}
+
+#messageItem .caldavInviteActions .btn {
+	display: inline-block;
+	cursor: pointer;
+	min-height: 1.8em;
+	line-height: 1.8em;
+	padding: 2px 12px;
+	font-size: 90%;
+	white-space: nowrap;
+	box-sizing: border-box;
+}
+
+#messageItem .caldavInviteCalendar {
+	max-width: 220px;
+	margin: 0;
+}
+
+#messageItem .caldavInviteRespond {
+	display: inline-flex;
+	gap: 6px;
+	flex-wrap: wrap;
+}
+
+#messageItem .caldavInviteStatus {
+	margin-top: 6px;
+	color: #2e7d32;
+	font-size: 90%;
+}
+
+#messageItem .caldavInviteError {
+	margin-top: 6px;
+	color: #c62828;
+	font-size: 90%;
+}
+
+/* ==================================================================
    Calendar button + dialog (calendar-dialog.js)
    ================================================================== */
 .buttonCalendar {
@@ -950,5 +1031,24 @@ html.rl-left-panel-disabled #rl-left .buttonCompose {
 	.mailbux-cal-dialog .mc-dtp-pop-day.mc-selected {
 		background: #00639a;
 		color: #fff;
+	}
+}
+
+/* ---- Calendar invite dark mode ---- */
+@media (prefers-color-scheme: dark) {
+	#messageItem .bodySubHeader > .caldavInvite {
+		background: #16222b;
+		border-color: #2a3b47;
+		border-left-color: #4fb3e8;
+		color: #d8d8d8;
+	}
+	#messageItem .caldavInviteInfo td:first-child {
+		color: #a8a8a8;
+	}
+	#messageItem .caldavInviteStatus {
+		color: #81c784;
+	}
+	#messageItem .caldavInviteError {
+		color: #ff9b95;
 	}
 }
