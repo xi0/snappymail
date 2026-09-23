@@ -656,6 +656,57 @@ html.rl-left-panel-disabled #rl-left .buttonCompose {
 	margin: 0;
 }
 
+.mailbux-cal-dialog .mc-only-this {
+	margin: 2px 0;
+}
+
+/* ---- Repeat (recurrence) controls ---- */
+.mailbux-cal-dialog .mc-repeat {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.mailbux-cal-dialog .mc-repeat-details {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	padding-top: 8px;
+	border-top: 1px dashed #e0e0e0;
+}
+
+.mailbux-cal-dialog .mc-field-row .mc-repeat-interval {
+	flex: 0 0 90px;
+}
+
+.mailbux-cal-dialog .mc-weekdays {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin-top: 4px;
+}
+
+.mailbux-cal-dialog .mc-weekday {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	font-size: 12px;
+	border: 1px solid #c9ced6;
+	border-radius: 6px;
+	padding: 3px 8px;
+	cursor: pointer;
+	background: #fff;
+}
+
+.mailbux-cal-dialog .mc-weekday input {
+	margin: 0;
+}
+
+.mailbux-cal-dialog .mc-event-repeat {
+	margin-left: 4px;
+	font-size: 10px;
+}
+
 .mailbux-cal-dialog .mc-form-error {
 	font-size: 13px;
 	color: #c62828;
@@ -972,6 +1023,14 @@ html.rl-left-panel-disabled #rl-left .buttonCompose {
 		background: #2a2a2a;
 		border-color: #444;
 		color: #e6e6e6;
+	}
+	.mailbux-cal-dialog .mc-weekday {
+		background: #2c2c2c;
+		border-color: #444;
+		color: #ddd;
+	}
+	.mailbux-cal-dialog .mc-repeat-details {
+		border-top-color: #3b3b3b;
 	}
 	.mailbux-cal-dialog .mc-form-error {
 		color: #ff9b95;

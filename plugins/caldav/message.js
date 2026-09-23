@@ -1,8 +1,11 @@
 // Mailbux CalDAV Auto - Calendar invite (received as .ics attachment)
 // When a message contains a text/calendar attachment, show an invite box in the
 // message view that lets the user add the event to their calendar and/or respond
-// to the invitation (Accept / Tentative / Decline). All calendar work is done by
-// the caldav plugin backend (ImportCalendarEvent / RespondToEvent JSON actions).
+// to the invitation (Accept / Tentative / Decline). Recurring invites show the
+// recurrence pattern, per-occurrence updates (RECURRENCE-ID) are applied to that
+// occurrence only, and METHOD:CANCEL offers "Remove from calendar".
+// All calendar work is done by the caldav plugin backend
+// (ImportCalendarEvent / RespondToEvent / RemoveCalendarEvent JSON actions).
 ((rl) => {
 'use strict';
 
@@ -110,22 +113,135 @@ function mailAddress(value) {
 	return ('' + (value || '')).replace(/^mailto:/i, '').replace(/^<|>$/g, '').trim();
 }
 
-// Format an iCalendar date (20251106T143000Z / 20251106) for display.
-function formatIcsDate(value) {
+// Offset (ms) of an IANA timezone at a given instant: zoneWall - utc.
+function tzOffsetMs(ts, tzid) {
+	const dtf = new Intl.DateTimeFormat('en-US', {
+		timeZone: tzid, hourCycle: 'h23',
+		year: 'numeric', month: '2-digit', day: '2-digit',
+		hour: '2-digit', minute: '2-digit', second: '2-digit'
+	});
+	const map = {};
+	dtf.formatToParts(new Date(ts)).forEach(part => { map[part.type] = part.value; });
+	if (map.hour === '24') {
+		map.hour = '00';
+	}
+	const asUtc = Date.UTC(+map.year, +map.month - 1, +map.day, +map.hour, +map.minute, +map.second);
+	return asUtc - ts;
+}
+
+// Build the UTC instant for a wall-clock time in the given IANA timezone.
+function zonedWallToUtc(y, month, day, hour, minute, second, tzid) {
+	const wall = Date.UTC(y, month - 1, day, hour, minute, second);
+	if (!tzid) {
+		return new Date(wall);
+	}
+	try {
+		const off1 = tzOffsetMs(wall, tzid);
+		let ts = wall - off1;
+		const off2 = tzOffsetMs(ts, tzid);
+		if (off2 !== off1) {
+			ts = wall - off2;
+		}
+		return new Date(ts);
+	} catch (e) {
+		// Unknown timezone in this browser: fall back to treating it as UTC
+		return new Date(wall);
+	}
+}
+
+// Read the TZID parameter of a VEVENT property (e.g. DTSTART;TZID=...).
+function propTzid(invite, name) {
+	const list = invite.props[name.toUpperCase()];
+	return (list && list.length && list[0].params && list[0].params.TZID) || '';
+}
+
+function pad2(n) {
+	return (n < 10 ? '0' : '') + n;
+}
+
+// Rewrite a single iCalendar line carrying a TZID into explicit UTC.
+function convertTzidLineToUtc(line) {
+	const pos = line.indexOf(':');
+	if (pos === -1) {
+		return line;
+	}
+	const head = line.slice(0, pos);
+	if (!/;TZID=/i.test(head)) {
+		return line;
+	}
+	const name = (head.split(';')[0] || '').toUpperCase();
+	if (['DTSTART', 'DTEND', 'RECURRENCE-ID', 'RDATE', 'EXDATE'].indexOf(name) === -1) {
+		return line;
+	}
+	const tzMatch = head.match(/;TZID=([^;:]+)/i);
+	if (!tzMatch) {
+		return line;
+	}
+	const tzid = tzMatch[1].replace(/^"|"$/g, '');
+	const newHead = head.replace(/;TZID=[^;:]+/i, '');
+	const values = line.slice(pos + 1).split(',').map(v => v.trim()).filter(Boolean);
+	const converted = [];
+	for (let i = 0; i < values.length; i++) {
+		const v = values[i];
+		const m = v.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(Z)?$/);
+		if (!m) {
+			// Not a plain local datetime (e.g. a DATE): leave the line untouched
+			return line;
+		}
+		if (m[7]) {
+			converted.push(v);
+			continue;
+		}
+		const d = zonedWallToUtc(+m[1], +m[2], +m[3], +m[4], +m[5], +m[6], tzid);
+		converted.push(d.getUTCFullYear() + pad2(d.getUTCMonth() + 1) + pad2(d.getUTCDate())
+			+ 'T' + pad2(d.getUTCHours()) + pad2(d.getUTCMinutes()) + pad2(d.getUTCSeconds()) + 'Z');
+	}
+	return converted.length ? (newHead + ':' + converted.join(',')) : line;
+}
+
+// Rewrite DTSTART/DTEND/RECURRENCE-ID/RDATE/EXDATE lines that carry a TZID into
+// explicit UTC and drop the now-unused VTIMEZONE blocks, so the stored CalDAV
+// event keeps its time and does not depend on a VTIMEZONE component (or the
+// server's timezone database).
+function convertIcsTzidToUtc(text) {
+	const out = [];
+	let inVtimezone = false;
+	unfoldIcs(text).forEach(line => {
+		if (/^BEGIN:VTIMEZONE\b/i.test(line)) {
+			inVtimezone = true;
+			return;
+		}
+		if (/^END:VTIMEZONE\b/i.test(line)) {
+			inVtimezone = false;
+			return;
+		}
+		if (inVtimezone) {
+			return;
+		}
+		out.push(convertTzidLineToUtc(line));
+	});
+	return out.join('\r\n');
+}
+
+// Format an iCalendar date (20251106T143000Z / 20251106T143000 / 20251106) for
+// display. A floating time carrying a TZID is resolved in that timezone.
+function formatIcsDate(value, tzid) {
 	const str = '' + (value || '');
-	let m = str.match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2}))?(Z)?$/);
+	const m = str.match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})(Z)?)?$/);
 	if (!m) {
 		return str;
 	}
 	try {
-		const date = m[4]
-			? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]))
-			: new Date(+m[1], +m[2] - 1, +m[3]);
-		const options = m[4]
-			? {dateStyle: 'medium', timeStyle: 'short'}
-			: {dateStyle: 'full'};
-		if (m[7] && typeof Date.prototype.format === 'function') {
-			return date.format({dateStyle: 'medium', timeStyle: 'short'});
+		let date;
+		let options;
+		if (m[4]) {
+			date = m[7]
+				? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]))
+				: zonedWallToUtc(+m[1], +m[2], +m[3], +m[4], +m[5], +m[6], tzid);
+			options = {dateStyle: 'medium', timeStyle: 'short'};
+		} else {
+			date = new Date(+m[1], +m[2] - 1, +m[3]);
+			options = {dateStyle: 'full'};
 		}
 		return (typeof date.format === 'function')
 			? date.format(options)
@@ -133,6 +249,54 @@ function formatIcsDate(value) {
 	} catch (e) {
 		return str;
 	}
+}
+
+// Localized short weekday name for a 0=Sunday index.
+function weekdayName(index) {
+	try {
+		return new Intl.DateTimeFormat(document.documentElement.lang || undefined, {weekday: 'short'})
+			.format(new Date(2024, 0, 7 + index));
+	} catch (e) {
+		return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][index] || '';
+	}
+}
+
+// Human readable summary of an invite's RRULE ('' when not recurring).
+function recurrenceText(invite) {
+	const rrule = prop(invite, 'RRULE', '');
+	if (!rrule) {
+		return '';
+	}
+	const rule = {};
+	rrule.split(';').forEach(part => {
+		const i = part.indexOf('=');
+		if (i > 0) {
+			rule[part.slice(0, i).toUpperCase()] = part.slice(i + 1);
+		}
+	});
+	const freq = (rule.FREQ || '').toUpperCase();
+	const freqText = t('FREQ_' + freq, freq.toLowerCase());
+	if (!freqText) {
+		return '';
+	}
+	const interval = parseInt(rule.INTERVAL || '1', 10) || 1;
+	let text = freqText;
+	if (interval > 1) {
+		text = interval + ' × ' + text;
+	}
+	if (rule.BYDAY) {
+		const days = rule.BYDAY.split(',').map(code => {
+			const idx = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'].indexOf(('' + code).replace(/[^A-Za-z]/g, '').toUpperCase());
+			return idx >= 0 ? weekdayName(idx) : code;
+		});
+		text += ' ' + t('REPEAT_ON', 'on') + ' ' + days.join(', ');
+	}
+	if (rule.COUNT) {
+		text += ', ' + rule.COUNT + '×';
+	} else if (rule.UNTIL) {
+		text += ', ' + t('REPEAT_UNTIL', 'until') + ' ' + formatIcsDate(rule.UNTIL);
+	}
+	return text;
 }
 
 /* ------------------------------------------------ request helper */
@@ -193,12 +357,18 @@ addEventListener('rl-view-model.create', e => {
 							<td>${esc(t('LOCATION', 'Location'))}:</td>
 							<td data-bind="text: CalDavInvite() && CalDavInvite().location"></td>
 						</tr>
+						<tr data-bind="visible: CalDavInvite() && CalDavInvite().recurrence">
+							<td>${esc(t('REPEAT', 'Repeat'))}:</td>
+							<td data-bind="text: CalDavInvite() && CalDavInvite().recurrence"></td>
+						</tr>
 					</tbody></table>
 					<div class="caldavInviteActions">
 						<select class="caldavInviteCalendar"
-							data-bind="visible: CalDavCalendars().length > 1, options: CalDavCalendars, optionsText: 'name', optionsValue: 'id', value: CalDavCalendarId"></select>
+							data-bind="visible: (CalDavCanAdd() || CalDavCanRemove()) && CalDavCalendars().length > 1, options: CalDavCalendars, optionsText: 'name', optionsValue: 'id', value: CalDavCalendarId"></select>
 						<button type="button" class="btn btn-success caldavInviteAdd"
-							data-bind="click: caldavAddEvent, disable: CalDavBusy(), text: caldavAddText"></button>
+							data-bind="visible: CalDavCanAdd, click: caldavAddEvent, disable: CalDavBusy(), text: caldavAddText"></button>
+						<button type="button" class="btn btn-danger caldavInviteRemove"
+							data-bind="visible: CalDavCanRemove, click: caldavRemoveEvent, disable: CalDavBusy()">${esc(t('REMOVE_FROM_CALENDAR', 'Remove from calendar'))}</button>
 						<span class="caldavInviteRespond" data-bind="visible: CalDavCanRespond">
 							<button type="button" class="btn btn-success caldavInviteAccept"
 								data-bind="click: () => caldavRespond('ACCEPTED'), disable: CalDavBusy()">${esc(t('ACCEPT', 'Accept'))}</button>
@@ -217,7 +387,9 @@ addEventListener('rl-view-model.create', e => {
 	view.CalDavInvite = ko.observable(null);
 	view.CalDavCalendars = ko.observableArray([]);
 	view.CalDavCalendarId = ko.observable('');
+	view.CalDavCanAdd = ko.observable(true);
 	view.CalDavCanRespond = ko.observable(false);
+	view.CalDavCanRemove = ko.observable(false);
 	view.CalDavBusy = ko.observable(false);
 	view.CalDavStatus = ko.observable('');
 	view.CalDavError = ko.observable('');
@@ -252,7 +424,7 @@ addEventListener('rl-view-model.create', e => {
 			view.CalDavError('');
 			view.CalDavBusy(true);
 			request('ImportCalendarEvent', {
-				Ics: invite.rawText,
+				Ics: convertIcsTzidToUtc(invite.rawText),
 				CalendarId: view.CalDavCalendarId() || 'default'
 			}).then(result => {
 				view.CalDavBusy(false);
@@ -288,7 +460,8 @@ addEventListener('rl-view-model.create', e => {
 			Ics: invite.rawText,
 			Response: response,
 			CalendarId: view.CalDavAdded() ? (view.CalDavCalendarId() || 'default') : '',
-			Uid: invite.uid || ''
+			Uid: invite.uid || '',
+			RecurrenceId: invite.recurrenceId || ''
 		}).then(result => {
 			view.CalDavBusy(false);
 			if (result && result.success) {
@@ -302,13 +475,55 @@ addEventListener('rl-view-model.create', e => {
 		});
 	};
 
+	view.caldavRemoveEvent = () => {
+		const invite = view.CalDavInvite();
+		if (!invite || view.CalDavBusy()) {
+			return;
+		}
+		const recurrenceId = invite.recurrenceId || '';
+		const doRemove = () => {
+			view.CalDavError('');
+			view.CalDavBusy(true);
+			const params = {
+				EventId: invite.uid || '',
+				CalendarId: view.CalDavCalendarId() || 'default',
+				Mode: recurrenceId ? 'occurrence' : 'series'
+			};
+			if (recurrenceId) {
+				params.RecurrenceId = recurrenceId;
+			}
+			request('RemoveCalendarEvent', params).then(result => {
+				view.CalDavBusy(false);
+				if (result && result.success) {
+					view.CalDavStatus(t('REMOVED', 'Removed from calendar'));
+				} else {
+					showError(result && result.error);
+				}
+			}).catch(err => {
+				view.CalDavBusy(false);
+				showError(err && err.message);
+			});
+		};
+
+		const message = recurrenceId
+			? t('REMOVE_OCCURRENCE_CONFIRM', 'Remove this occurrence from your calendar?')
+			: t('REMOVE_CONFIRM', 'Remove this event from your calendar?');
+		if (window.rl && rl.app && rl.app.ask && typeof rl.app.ask.showModal === 'function') {
+			rl.app.ask.showModal([message, doRemove, null]);
+		} else if (window.confirm(message)) {
+			doRemove();
+		}
+	};
+
 	view.message.subscribe(msg => {
 		// Reset state for the newly shown message
 		view.CalDavInvite(null);
 		view.CalDavStatus('');
 		view.CalDavError('');
 		view.CalDavAdded(false);
+		view.CalDavCanAdd(true);
 		view.CalDavCanRespond(false);
+		view.CalDavCanRemove(false);
 
 		if (!msg) {
 			return;
@@ -333,10 +548,17 @@ addEventListener('rl-view-model.create', e => {
 				invite.summary = unescapeText(prop(invite, 'SUMMARY', t('UNTITLED', 'Untitled')));
 				invite.organizer = mailAddress(prop(invite, 'ORGANIZER', ''));
 				invite.location = unescapeText(prop(invite, 'LOCATION', ''));
-				invite.start = formatIcsDate(prop(invite, 'DTSTART', ''));
-				invite.end = formatIcsDate(prop(invite, 'DTEND', ''));
+				const tzidStart = propTzid(invite, 'DTSTART');
+				const tzidEnd = propTzid(invite, 'DTEND') || tzidStart;
+				invite.start = formatIcsDate(prop(invite, 'DTSTART', ''), tzidStart);
+				invite.end = formatIcsDate(prop(invite, 'DTEND', ''), tzidEnd);
+				invite.recurrence = recurrenceText(invite);
+				invite.recurrenceId = prop(invite, 'RECURRENCE-ID', '');
 
-				view.CalDavCanRespond(!!invite.organizer && 'CANCEL' !== invite.method);
+				const isCancel = 'CANCEL' === invite.method;
+				view.CalDavCanAdd(!isCancel);
+				view.CalDavCanRespond(!!invite.organizer && !isCancel);
+				view.CalDavCanRemove(isCancel && !!invite.uid);
 				view.CalDavInvite(invite);
 				loadCalendars();
 			})

@@ -73,6 +73,8 @@ const state = {
 	calendars: [],
 	selected: new Set(),
 	events: [],
+	// Occurrences produced by the most recent render (state.events holds series)
+	rendered: [],
 	view: loadSavedView(),
 	cursor: startOfDay(new Date()),
 	loading: false,
@@ -83,6 +85,9 @@ let dialogEl = null;
 // Custom date/time pickers used by the event form (built in buildDialog)
 let startPicker = null;
 let endPicker = null;
+let untilPicker = null;
+// The series currently being edited (an event on its own, or the master of an occurrence)
+let editingSeries = null;
 
 /* ------------------------------------------------------------------ utils */
 
@@ -216,6 +221,275 @@ function parseInputDate(value) {
 function nextHour() {
 	const now = new Date();
 	return new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours() + 1, 0, 0, 0);
+}
+
+/* ---------------------------------------------------------- recurrence */
+
+// RFC 5545 recurrence expansion (DAILY/WEEKLY/MONTHLY/YEARLY subset) plus
+// RDATE/EXDATE and per-occurrence overrides (RECURRENCE-ID).
+
+const DAY_CODES = {SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6};
+
+function dayCodeToIndex(code) {
+	const key = ('' + (code == null ? '' : code)).replace(/[^A-Za-z]/g, '').toUpperCase();
+	return (key in DAY_CODES) ? DAY_CODES[key] : 1;
+}
+
+function parseRrule(rrule) {
+	const out = {};
+	('' + (rrule || '')).split(';').forEach(part => {
+		const i = part.indexOf('=');
+		if (i > 0) {
+			out[part.slice(0, i).toUpperCase()] = part.slice(i + 1);
+		}
+	});
+	return out;
+}
+
+// Parse an iCalendar UTC/date instant (YYYYMMDD or YYYYMMDDTHHMMSSZ) to a Date.
+function parseIcsInstant(value) {
+	const s = ('' + (value == null ? '' : value)).trim();
+	const m = s.match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})Z?)?$/);
+	if (!m) {
+		return parseDate(s);
+	}
+	return m[4]
+		? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]))
+		: new Date(+m[1], +m[2] - 1, +m[3]);
+}
+
+// nth (1-based, or negative from end) weekday of a month, or null when it does not exist.
+function nthWeekdayOfMonth(year, month, dow, nth, ref) {
+	const h = ref.getHours();
+	const mi = ref.getMinutes();
+	const s = ref.getSeconds();
+	if (nth > 0) {
+		const first = new Date(year, month, 1);
+		const day = 1 + ((dow - first.getDay() + 7) % 7) + (nth - 1) * 7;
+		const d = new Date(year, month, day, h, mi, s);
+		return d.getMonth() === month ? d : null;
+	}
+	const last = new Date(year, month + 1, 0);
+	const day = last.getDate() - ((last.getDay() - dow + 7) % 7) - (Math.abs(nth) - 1) * 7;
+	const d = new Date(year, month, day, h, mi, s);
+	return d.getMonth() === month ? d : null;
+}
+
+// Candidate occurrence start dates for one recurrence period.
+function periodCandidates(freq, anchor, period, interval, rule) {
+	const list = [];
+	if ('DAILY' === freq) {
+		list.push(addDays(anchor, period * interval));
+	} else if ('WEEKLY' === freq) {
+		const base = addDays(startOfWeek(anchor), period * interval * 7);
+		const days = rule.BYDAY ? rule.BYDAY.split(',').map(dayCodeToIndex) : [anchor.getDay()];
+		days.forEach(dow => list.push(addDays(base, (dow + 6) % 7)));
+	} else if ('MONTHLY' === freq) {
+		const base = new Date(anchor.getFullYear(), anchor.getMonth() + period * interval, 1);
+		if (rule.BYMONTHDAY) {
+			rule.BYMONTHDAY.split(',').map(Number).forEach(day => {
+				const d = new Date(base.getFullYear(), base.getMonth(), day, anchor.getHours(), anchor.getMinutes(), anchor.getSeconds());
+				if (d.getMonth() === base.getMonth()) {
+					list.push(d);
+				}
+			});
+		} else if (rule.BYDAY) {
+			rule.BYDAY.split(',').forEach(spec => {
+				const m = ('' + spec).match(/^([+-]?\d+)?([A-Za-z]{2})$/);
+				if (!m) {
+					return;
+				}
+				const nth = m[1] ? parseInt(m[1], 10) : 1;
+				const d = nthWeekdayOfMonth(base.getFullYear(), base.getMonth(), dayCodeToIndex(m[2]), nth, anchor);
+				if (d) {
+					list.push(d);
+				}
+			});
+		} else {
+			const d = new Date(base.getFullYear(), base.getMonth(), anchor.getDate(), anchor.getHours(), anchor.getMinutes(), anchor.getSeconds());
+			if (d.getMonth() === base.getMonth()) {
+				list.push(d);
+			}
+		}
+	} else if ('YEARLY' === freq) {
+		const year = anchor.getFullYear() + period * interval;
+		list.push(new Date(year, anchor.getMonth(), anchor.getDate(), anchor.getHours(), anchor.getMinutes(), anchor.getSeconds()));
+	}
+	return list;
+}
+
+// Generate occurrence start dates from DTSTART, bounded by the visible range.
+function generateOccurrenceStarts(event, rangeEnd) {
+	if (!event.rrule) {
+		// rdate-only recurrences are handled by the caller
+		return [];
+	}
+	const rule = parseRrule(event.rrule);
+	const freq = (rule.FREQ || 'DAILY').toUpperCase();
+	const interval = Math.max(1, parseInt(rule.INTERVAL || '1', 10) || 1);
+	const until = rule.UNTIL ? parseIcsInstant(rule.UNTIL) : null;
+	const count = rule.COUNT ? parseInt(rule.COUNT, 10) : null;
+
+	const anchor = new Date(event.start.getTime());
+	const starts = [];
+	const seen = new Set();
+	let emitted = 0;
+	let period = 0;
+	let guard = 0;
+
+	while (guard++ < 50000) {
+		const candidates = periodCandidates(freq, anchor, period, interval, rule).sort((a, b) => a - b);
+		if (candidates.length && candidates[0] > rangeEnd) {
+			break;
+		}
+		for (let k = 0; k < candidates.length; k++) {
+			const cand = candidates[k];
+			// Day-based candidates (weekly especially) are built from a local
+			// midnight, so always restore DTSTART's wall-clock time.
+			cand.setHours(anchor.getHours(), anchor.getMinutes(), anchor.getSeconds(), 0);
+			if (cand < anchor) {
+				continue;
+			}
+			if (until && cand > until) {
+				return starts;
+			}
+			emitted++;
+			if (count && emitted > count) {
+				return starts;
+			}
+			const t = cand.getTime();
+			if (!seen.has(t)) {
+				seen.add(t);
+				starts.push(cand);
+			}
+		}
+		period++;
+	}
+	return starts;
+}
+
+function isRecurringEvent(event) {
+	return !!event.rrule || (event.rdate && event.rdate.length > 0);
+}
+
+function makeOccurrence(event, start, end, override, recurrenceId) {
+	const src = override || event;
+	return {
+		id: event.id,
+		url: event.url,
+		calendarId: event.calendarId,
+		title: src.title,
+		location: src.location,
+		description: src.description,
+		color: event.color,
+		allDay: src.allDay,
+		start: start,
+		end: end,
+		recurrenceId: recurrenceId || null,
+		series: event,
+		isOverride: !!override,
+		recurring: !override && isRecurringEvent(event)
+	};
+}
+
+// Expand one series into concrete occurrences overlapping [rangeStart, rangeEnd).
+function expandSeries(event, rangeStart, rangeEnd) {
+	const out = [];
+	const duration = Math.max(0, eventEnd(event) - event.start);
+
+	if (!isRecurringEvent(event)) {
+		if (eventEnd(event) > rangeStart && event.start < rangeEnd) {
+			out.push(makeOccurrence(event, event.start, eventEnd(event), null, null));
+		}
+		return out;
+	}
+
+	const overrideMap = {};
+	(event.overrides || []).forEach(o => {
+		if (o.recurrenceId) {
+			overrideMap[o.recurrenceId.getTime()] = o;
+		}
+	});
+	const exdates = new Set();
+	(event.exdate || []).forEach(v => {
+		const d = parseDate(v);
+		if (d) {
+			exdates.add(d.getTime());
+		}
+	});
+
+	let starts = generateOccurrenceStarts(event, rangeEnd);
+	(event.rdate || []).forEach(v => {
+		const d = parseDate(v);
+		if (d) {
+			starts.push(d);
+		}
+	});
+
+	const seen = new Set();
+	starts = starts
+		.filter(d => {
+			const t = d.getTime();
+			if (seen.has(t)) {
+				return false;
+			}
+			seen.add(t);
+			return true;
+		})
+		.sort((a, b) => a - b);
+
+	const usedOverride = new Set();
+	starts.forEach(start => {
+		const t = start.getTime();
+		if (exdates.has(t)) {
+			return;
+		}
+		const ov = overrideMap[t];
+		if (ov) {
+			usedOverride.add(t);
+			if (eventEnd(ov) > rangeStart && ov.start < rangeEnd) {
+				out.push(makeOccurrence(event, ov.start, eventEnd(ov), ov, start));
+			}
+		} else {
+			const end = new Date(start.getTime() + duration);
+			if (end > rangeStart && start < rangeEnd) {
+				out.push(makeOccurrence(event, start, end, null, start));
+			}
+		}
+	});
+
+	// Overrides whose master occurrence fell outside the generated window
+	(event.overrides || []).forEach(o => {
+		if (!o.recurrenceId) {
+			return;
+		}
+		const t = o.recurrenceId.getTime();
+		if (usedOverride.has(t) || exdates.has(t)) {
+			return;
+		}
+		if (eventEnd(o) > rangeStart && o.start < rangeEnd) {
+			out.push(makeOccurrence(event, o.start, eventEnd(o), o, o.recurrenceId));
+		}
+	});
+
+	return out;
+}
+
+// Format a Date as an iCalendar value for a client request (date-only for all-day).
+function icsValue(date, allDay) {
+	if (!(date instanceof Date) || isNaN(date.getTime())) {
+		return '';
+	}
+	if (allDay) {
+		return date.getFullYear() + '-' + pad2(date.getMonth() + 1) + '-' + pad2(date.getDate());
+	}
+	return date.toISOString();
+}
+
+function repeatIcon(event) {
+	return (event.recurring || event.isOverride)
+		? '<span class="mc-event-repeat" title="' + esc(t('CALDAV/REPEATS', 'Repeating event')) + '">🔁</span>'
+		: '';
 }
 
 /* ---------------------------------------------- custom date/time picker */
@@ -563,6 +837,40 @@ function buildDialog() {
 							<span class="mc-field-label mc-lbl-calendar"></span>
 							<select name="calendar"></select>
 						</label>
+						<label class="mc-check mc-only-this" hidden>
+							<input type="checkbox" name="onlythis">
+							<span class="mc-lbl-onlythis"></span>
+						</label>
+						<div class="mc-repeat">
+							<label class="mc-field">
+								<span class="mc-field-label mc-lbl-repeat"></span>
+								<select name="repeat"></select>
+							</label>
+							<div class="mc-repeat-details" hidden>
+								<div class="mc-field-row">
+									<label class="mc-field mc-repeat-interval">
+										<span class="mc-field-label mc-lbl-every"></span>
+										<input type="number" name="repeatinterval" min="1" max="999" value="1">
+									</label>
+									<label class="mc-field">
+										<span class="mc-field-label mc-lbl-ends"></span>
+										<select name="repeatends"></select>
+									</label>
+								</div>
+								<div class="mc-repeat-until" hidden>
+									<span class="mc-field-label mc-lbl-endson"></span>
+									<div class="mc-dtp-host" data-cal-dtp="until"></div>
+								</div>
+								<label class="mc-field mc-repeat-count" hidden>
+									<span class="mc-field-label mc-lbl-after"></span>
+									<input type="number" name="repeatcount" min="1" max="999" value="10">
+								</label>
+								<div class="mc-repeat-weekdays" hidden>
+									<span class="mc-field-label mc-lbl-on"></span>
+									<div class="mc-weekdays"></div>
+								</div>
+							</div>
+						</div>
 						<label class="mc-check">
 							<input type="checkbox" name="allday">
 							<span class="mc-lbl-allday"></span>
@@ -621,20 +929,59 @@ function buildDialog() {
 	q('.mc-lbl-end').textContent = t('CALDAV/END', 'End');
 	q('.mc-lbl-location').textContent = t('CALDAV/LOCATION', 'Location');
 	q('.mc-lbl-description').textContent = t('CALDAV/DESCRIPTION', 'Description');
+	q('.mc-lbl-repeat').textContent = t('CALDAV/REPEAT', 'Repeat');
+	q('.mc-lbl-every').textContent = t('CALDAV/EVERY', 'Every');
+	q('.mc-lbl-ends').textContent = t('CALDAV/REPEAT_ENDS', 'Ends');
+	q('.mc-lbl-endson').textContent = t('CALDAV/REPEAT_UNTIL', 'On date');
+	q('.mc-lbl-after').textContent = t('CALDAV/REPEAT_AFTER', 'After');
+	q('.mc-lbl-on').textContent = t('CALDAV/REPEAT_ON', 'On');
+	q('.mc-lbl-onlythis').textContent = t('CALDAV/ONLY_THIS_EVENT', 'Only this event');
 	q('[data-cal-delete]').textContent = t('CALDAV/DELETE', 'Delete');
 	q('[data-cal-cancel]').textContent = t('CALDAV/CANCEL', 'Cancel');
 	q('[data-cal-save]').textContent = t('CALDAV/SAVE', 'Save');
 	q('.mc-form-title').textContent = t('CALDAV/NEW_EVENT', 'New event');
 	q('.mc-form-head .mc-close').setAttribute('aria-label', t('CALDAV/CLOSE', 'Close'));
 
+	// Repeat frequency options
+	const repeatSel = q('[name="repeat"]');
+	[['', t('CALDAV/REPEAT_NONE', 'Does not repeat')],
+	 ['daily', t('CALDAV/REPEAT_DAILY', 'Daily')],
+	 ['weekly', t('CALDAV/REPEAT_WEEKLY', 'Weekly')],
+	 ['monthly', t('CALDAV/REPEAT_MONTHLY', 'Monthly')],
+	 ['yearly', t('CALDAV/REPEAT_YEARLY', 'Yearly')]].forEach(opt => {
+		repeatSel.appendChild(new Option(opt[1], opt[0]));
+	});
+	// Ends options
+	const endsSel = q('[name="repeatends"]');
+	[['never', t('CALDAV/REPEAT_NEVER', 'Never')],
+	 ['until', t('CALDAV/REPEAT_UNTIL', 'On date')],
+	 ['count', t('CALDAV/REPEAT_AFTER', 'After')]].forEach(opt => {
+		endsSel.appendChild(new Option(opt[1], opt[0]));
+	});
+	// Weekday checkboxes (weekly recurrence)
+	const weekdayBox = q('.mc-weekdays');
+	[['MO', 1], ['TU', 2], ['WE', 3], ['TH', 4], ['FR', 5], ['SA', 6], ['SU', 0]].forEach(item => {
+		const label = document.createElement('label');
+		label.className = 'mc-weekday';
+		label.innerHTML = '<input type="checkbox" data-weekday="' + item[0] + '"><span>'
+			+ esc(WEEKDAYS[item[1]]) + '</span>';
+		weekdayBox.appendChild(label);
+	});
+
 	// Custom date/time pickers (fixed DD-MM-YYYY + 24-hour format)
 	startPicker = createDateTimePicker();
 	endPicker = createDateTimePicker();
+	untilPicker = createDateTimePicker();
+	untilPicker.setTimeVisible(false);
 	q('[data-cal-dtp="start"]').appendChild(startPicker.element);
 	q('[data-cal-dtp="end"]').appendChild(endPicker.element);
+	q('[data-cal-dtp="until"]').appendChild(untilPicker.element);
 
 	q('.mc-form-window').addEventListener('submit', saveEventForm);
 	q('[name="allday"]').addEventListener('change', () => toggleFormAllDay(eventFormEls()));
+	q('[name="repeat"]').addEventListener('change', () => toggleRepeatFields());
+	q('[name="repeatends"]').addEventListener('change', () => toggleRepeatFields());
+	q('[name="onlythis"]').addEventListener('change', () => applyOnlyThis());
 	q('[data-cal-delete]').addEventListener('click', deleteEventForm);
 
 	dialogEl.addEventListener('click', event => {
@@ -655,7 +1002,7 @@ function buildDialog() {
 		// Clicking an existing event opens the edit form
 		const eventEl = target.closest('[data-cal-event]');
 		if (eventEl) {
-			const chosen = state.events.find(item => item.domId === eventEl.dataset.calEvent);
+			const chosen = state.rendered.find(item => item.domId === eventEl.dataset.calEvent);
 			if (chosen) {
 				openEventForm(chosen);
 			}
@@ -760,7 +1107,9 @@ function closeDialog() {
 	}
 	startPicker && startPicker.close();
 	endPicker && endPicker.close();
+	untilPicker && untilPicker.close();
 	editingEvent = null;
+	editingSeries = null;
 	document.removeEventListener('keydown', onKeydown, true);
 }
 
@@ -797,23 +1146,35 @@ async function refreshEvents() {
 }
 
 async function loadEvents() {
-	const events = [];
+	const series = [];
 	await Promise.all(state.calendars.map(async calendar => {
 		try {
 			const result = await request('GetCalendarEvents', {CalendarId: calendar.id});
-			((result && result.events) || []).forEach(raw => {
+			const rawList = (result && result.events) || [];
+			// A recurring resource yields several VEVENTs (master + overrides)
+			// sharing one href; group them into a single series object.
+			const byResource = new Map();
+			rawList.forEach(raw => {
 				const event = normalizeEvent(raw, calendar);
-				event && events.push(event);
+				if (!event) {
+					return;
+				}
+				const key = raw.href || (event.id + '|' + calendar.id);
+				if (!byResource.has(key)) {
+					byResource.set(key, []);
+				}
+				byResource.get(key).push(event);
+			});
+			byResource.forEach(list => {
+				const master = list.find(event => !event.recurrenceId) || list[0];
+				master.overrides = list.filter(event => event.recurrenceId);
+				series.push(master);
 			});
 		} catch (e) {
 			// Ignore a single failing calendar so the others still show
 		}
 	}));
-	state.events = events;
-	// Give each event a stable DOM key for the click handlers
-	state.events.forEach((event, index) => {
-		event.domId = 'cal-event-' + index;
-	});
+	state.events = series;
 }
 
 function normalizeEvent(raw, calendar) {
@@ -824,6 +1185,7 @@ function normalizeEvent(raw, calendar) {
 	return {
 		id: raw.uid || ('event-' + Math.random().toString(36).slice(2)),
 		url: raw.href || '',
+		etag: raw.etag || '',
 		calendarId: calendar.id,
 		title: raw.summary || t('CALDAV/UNTITLED', 'Untitled'),
 		start: start,
@@ -831,7 +1193,12 @@ function normalizeEvent(raw, calendar) {
 		allDay: !!raw.allDay,
 		location: raw.location || '',
 		description: raw.description || '',
-		color: calendar.color || '#00639a'
+		color: calendar.color || '#00639a',
+		rrule: raw.rrule || '',
+		rdate: raw.rdate || [],
+		exdate: raw.exdate || [],
+		recurrenceId: parseDate(raw.recurrenceId) || null,
+		sequence: raw.sequence || '0'
 	};
 }
 
@@ -853,8 +1220,137 @@ function eventFormEls() {
 		description: root.querySelector('[name="description"]'),
 		error: root.querySelector('.mc-form-error'),
 		del: root.querySelector('[data-cal-delete]'),
-		save: root.querySelector('[data-cal-save]')
+		save: root.querySelector('[data-cal-save]'),
+		onlythis: root.querySelector('[name="onlythis"]'),
+		onlythisLabel: root.querySelector('.mc-only-this'),
+		repeat: root.querySelector('[name="repeat"]'),
+		repeatBox: root.querySelector('.mc-repeat'),
+		repeatDetails: root.querySelector('.mc-repeat-details'),
+		repeatInterval: root.querySelector('[name="repeatinterval"]'),
+		repeatEnds: root.querySelector('[name="repeatends"]'),
+		repeatUntil: root.querySelector('.mc-repeat-until'),
+		repeatCount: root.querySelector('.mc-repeat-count'),
+		repeatWeekdays: root.querySelector('.mc-repeat-weekdays'),
+		weekdays: Array.from(root.querySelectorAll('[data-weekday]'))
 	};
+}
+
+// Show/hide the interval/weekday/ends controls for the chosen frequency.
+function toggleRepeatFields() {
+	const el = eventFormEls();
+	const freq = el.repeat.value;
+	el.repeatDetails.hidden = !freq;
+	if (!freq) {
+		return;
+	}
+	el.repeatWeekdays.hidden = ('weekly' !== freq);
+	const ends = el.repeatEnds.value;
+	el.repeatUntil.hidden = ('until' !== ends);
+	el.repeatCount.hidden = ('count' !== ends);
+	// Keep the weekly default in sync with the event start day
+	if ('weekly' === freq && !el.weekdays.some(cb => cb.checked)) {
+		const start = startPicker && startPicker.getValue();
+		const dow = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'][start ? start.getDay() : new Date().getDay()];
+		const cb = el.weekdays.find(item => item.dataset.weekday === dow);
+		if (cb) {
+			cb.checked = true;
+		}
+	}
+}
+
+function repeatFreqToCode(freq) {
+	return ({daily: 'DAILY', weekly: 'WEEKLY', monthly: 'MONTHLY', yearly: 'YEARLY'})[freq] || '';
+}
+
+// Build an RRULE value from the repeat controls ('' when not repeating).
+function readRepeatForm(el, allDay) {
+	const freq = el.repeat.value;
+	if (!freq) {
+		return '';
+	}
+	const parts = ['FREQ=' + repeatFreqToCode(freq)];
+	const interval = parseInt(el.repeatInterval.value, 10);
+	if (interval > 1) {
+		parts.push('INTERVAL=' + interval);
+	}
+	if ('weekly' === freq) {
+		const days = el.weekdays.filter(cb => cb.checked).map(cb => cb.dataset.weekday);
+		if (days.length) {
+			parts.push('BYDAY=' + days.join(','));
+		}
+	}
+	const ends = el.repeatEnds.value;
+	if ('count' === ends) {
+		const count = parseInt(el.repeatCount.value, 10);
+		if (count > 0) {
+			parts.push('COUNT=' + count);
+		}
+	} else if ('until' === ends) {
+		const until = untilPicker.getValue();
+		if (until) {
+			if (allDay) {
+				parts.push('UNTIL=' + until.getFullYear() + pad2(until.getMonth() + 1) + pad2(until.getDate()));
+			} else {
+				const end = new Date(until.getFullYear(), until.getMonth(), until.getDate(), 23, 59, 59);
+				const p = n => (n < 10 ? '0' : '') + n;
+				parts.push('UNTIL=' + end.getUTCFullYear() + p(end.getUTCMonth() + 1) + p(end.getUTCDate())
+					+ 'T' + p(end.getUTCHours()) + p(end.getUTCMinutes()) + p(end.getUTCSeconds()) + 'Z');
+			}
+		}
+	}
+	return parts.join(';');
+}
+
+// Pre-fill the repeat controls from an existing RRULE.
+function setRepeatForm(rrule, startDate) {
+	const el = eventFormEls();
+	const rule = parseRrule(rrule);
+	const freq = (rule.FREQ || '').toLowerCase();
+	el.repeat.value = ['daily', 'weekly', 'monthly', 'yearly'].includes(freq) ? freq : '';
+	el.repeatInterval.value = Math.max(1, parseInt(rule.INTERVAL || '1', 10) || 1);
+	el.weekdays.forEach(cb => { cb.checked = false; });
+	if (rule.BYDAY) {
+		rule.BYDAY.split(',').map(dayCodeToIndex).forEach(dow => {
+			const code = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'][dow];
+			const cb = el.weekdays.find(item => item.dataset.weekday === code);
+			if (cb) {
+				cb.checked = true;
+			}
+		});
+	}
+	if (rule.COUNT) {
+		el.repeatEnds.value = 'count';
+		el.repeatCount.value = parseInt(rule.COUNT, 10) || 10;
+	} else if (rule.UNTIL) {
+		el.repeatEnds.value = 'until';
+		untilPicker.setValue(parseIcsInstant(rule.UNTIL));
+	} else {
+		el.repeatEnds.value = 'never';
+	}
+	if (!rule.UNTIL) {
+		untilPicker.setValue(startDate || new Date());
+	}
+	toggleRepeatFields();
+}
+
+// Toggle the "only this event" mode (single occurrence vs whole series).
+function applyOnlyThis() {
+	const el = eventFormEls();
+	const onlyThis = el.onlythis.checked;
+	el.repeatBox.hidden = onlyThis;
+	el.calendar.disabled = onlyThis;
+}
+
+// Decide whether the form should offer a single-occurrence choice.
+function setupOccurrenceChoice(event) {
+	const el = eventFormEls();
+	const series = event ? (event.series || event) : null;
+	const recurring = !!(series && isRecurringEvent(series));
+	el.onlythisLabel.hidden = !recurring;
+	el.onlythis.checked = recurring;
+	el.repeatBox.hidden = false;
+	el.calendar.disabled = false;
+	applyOnlyThis();
 }
 
 function fillCalendarOptions(select, selectedId) {
@@ -948,6 +1444,10 @@ function openEventForm(event, defaults) {
 		el.end.setValue(allDay ? addDays(end, -1) : end);
 	}
 
+	editingSeries = editing ? (event.series || event) : null;
+	setupOccurrenceChoice(editing ? event : null);
+	setRepeatForm(editingSeries ? editingSeries.rrule : '', el.start.getValue() || new Date());
+
 	toggleFormAllDay(el);
 	el.root.hidden = false;
 	setTimeout(() => el.title.focus(), 20);
@@ -962,7 +1462,9 @@ function closeEventForm() {
 	}
 	startPicker && startPicker.close();
 	endPicker && endPicker.close();
+	untilPicker && untilPicker.close();
 	editingEvent = null;
+	editingSeries = null;
 }
 
 async function saveEventForm(event) {
@@ -1020,24 +1522,43 @@ async function saveEventForm(event) {
 		Location: el.location.value
 	};
 
+	const series = editingSeries || (editingEvent ? (editingEvent.series || editingEvent) : null);
+	const recurringSeries = !!(series && isRecurringEvent(series));
+	const onlyThis = !!(editingEvent && recurringSeries && el.onlythis.checked);
+
 	showFormError(el, '');
 	el.save.disabled = true;
 	try {
 		if (editingEvent) {
-			if (calendarId === editingEvent.calendarId) {
-				params.EventId = editingEvent.id;
-				params.EventUrl = editingEvent.url || '';
+			if (onlyThis) {
+				// Edit a single occurrence of a recurring series (RECURRENCE-ID override)
+				params.EventId = series.id;
+				params.EventUrl = series.url || '';
+				params.Mode = 'occurrence';
+				params.RecurrenceId = icsValue(editingEvent.recurrenceId || series.start, series.allDay);
 				await saveEventRequest('UpdateCalendarEvent', params);
 			} else {
-				// Moved to another calendar: create in the target, remove from the source
-				await saveEventRequest('CreateCalendarEvent', params);
-				await saveEventRequest('DeleteCalendarEvent', {
-					EventId: editingEvent.id,
-					EventUrl: editingEvent.url || '',
-					CalendarId: editingEvent.calendarId
-				});
+				// Edit the whole series
+				params.EventId = series.id;
+				params.EventUrl = series.url || '';
+				params.Mode = 'series';
+				params.Rrule = readRepeatForm(el, allDay);
+				params.Exdate = (series.exdate || []).join(',');
+				if (calendarId === series.calendarId) {
+					await saveEventRequest('UpdateCalendarEvent', params);
+				} else {
+					// Moved to another calendar: recreate the series in the target
+					await saveEventRequest('CreateCalendarEvent', params);
+					await saveEventRequest('RemoveCalendarEvent', {
+						EventId: series.id,
+						EventUrl: series.url || '',
+						CalendarId: series.calendarId,
+						Mode: 'series'
+					});
+				}
 			}
 		} else {
+			params.Rrule = readRepeatForm(el, allDay);
 			await saveEventRequest('CreateCalendarEvent', params);
 		}
 		closeEventForm();
@@ -1062,18 +1583,33 @@ async function deleteEventForm() {
 	if (!editingEvent) {
 		return;
 	}
-	if (!window.confirm(t('CALDAV/DELETE_CONFIRM', 'Delete this event?'))) {
+	const el = eventFormEls();
+	const series = editingEvent.series || editingEvent;
+	const recurringSeries = isRecurringEvent(series);
+	const onlyThis = recurringSeries && el.onlythis.checked;
+
+	const confirmMsg = onlyThis
+		? t('CALDAV/DELETE_OCCURRENCE_CONFIRM', 'Delete this occurrence?')
+		: (recurringSeries
+			? t('CALDAV/DELETE_SERIES_CONFIRM', 'Delete all occurrences of this event?')
+			: t('CALDAV/DELETE_CONFIRM', 'Delete this event?'));
+	if (!window.confirm(confirmMsg)) {
 		return;
 	}
-	const el = eventFormEls();
+
 	showFormError(el, '');
 	el.del.disabled = true;
 	try {
-		await saveEventRequest('DeleteCalendarEvent', {
-			EventId: editingEvent.id,
-			EventUrl: editingEvent.url || '',
-			CalendarId: editingEvent.calendarId
-		});
+		const params = {
+			EventId: series.id,
+			EventUrl: series.url || '',
+			CalendarId: series.calendarId,
+			Mode: onlyThis ? 'occurrence' : 'series'
+		};
+		if (onlyThis) {
+			params.RecurrenceId = icsValue(editingEvent.recurrenceId || series.start, series.allDay);
+		}
+		await saveEventRequest('RemoveCalendarEvent', params);
 		closeEventForm();
 		await refreshEvents();
 	} catch (e) {
@@ -1085,8 +1621,37 @@ async function deleteEventForm() {
 
 /* ------------------------------------------------------------------ render */
 
+// The date range covered by the current view (end exclusive).
+function viewRange() {
+	const cursor = state.cursor;
+	if (state.view === 'month') {
+		const first = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
+		const gridStart = addDays(first, -((first.getDay() + 6) % 7));
+		return {start: gridStart, end: addDays(gridStart, 42)};
+	}
+	if (state.view === 'week') {
+		const start = startOfWeek(cursor);
+		return {start: start, end: addDays(start, 7)};
+	}
+	const start = startOfDay(cursor);
+	return {start: start, end: addDays(start, 1)};
+}
+
 function visibleEvents() {
-	return state.events.filter(event => state.selected.has(event.calendarId));
+	const range = viewRange();
+	const out = [];
+	state.events.forEach(series => {
+		if (!state.selected.has(series.calendarId)) {
+			return;
+		}
+		expandSeries(series, range.start, range.end).forEach(occ => out.push(occ));
+	});
+	// Stable DOM keys for the click handlers
+	out.forEach((occ, index) => {
+		occ.domId = 'cal-event-' + index;
+	});
+	state.rendered = out;
+	return out;
 }
 
 function eventsOnDay(events, day) {
@@ -1199,7 +1764,7 @@ function renderMonth(content) {
 		dayEvents.slice(0, 3).forEach(event => {
 			html += '<div class="mc-event" data-cal-event="' + esc(event.domId) + '" style="background-color:' + esc(event.color) + '" title="' + esc(eventTooltip(event)) + '">'
 				+ (event.allDay ? '' : '<span class="mc-event-time">' + timeLabel(event.start) + '</span> ')
-				+ esc(event.title) + '</div>';
+				+ esc(event.title) + repeatIcon(event) + '</div>';
 		});
 		if (dayEvents.length > 3) {
 			html += '<div class="mc-event-more">'
@@ -1245,7 +1810,7 @@ function renderTimeGrid(content, days, singleDay) {
 		html += '<div class="mc-daycol-allday" data-cal-newdate="' + dateInputValue(day) + '">';
 		allDay.forEach(event => {
 			html += '<div class="mc-event mc-event-allday" data-cal-event="' + esc(event.domId) + '" style="background-color:' + esc(event.color) + '" title="' + esc(eventTooltip(event)) + '">'
-				+ esc(event.title) + '</div>';
+				+ esc(event.title) + repeatIcon(event) + '</div>';
 		});
 		html += '</div>';
 		html += '</div>';
@@ -1256,7 +1821,7 @@ function renderTimeGrid(content, days, singleDay) {
 				html += '<div class="mc-event mc-event-timed" data-cal-event="' + esc(event.domId) + '" title="' + esc(eventTooltip(event)) + '"'
 					+ ' style="top:' + position.top + 'px;height:' + position.height + 'px;background-color:' + esc(event.color) + '">'
 					+ '<span class="mc-event-time">' + timeLabel(event.start) + '</span>'
-					+ '<span class="mc-event-title">' + esc(event.title) + '</span></div>';
+					+ '<span class="mc-event-title">' + esc(event.title) + repeatIcon(event) + '</span></div>';
 			}
 		});
 		html += '</div></div>';

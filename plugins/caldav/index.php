@@ -4,8 +4,8 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 {
 	const
 		NAME     = 'Mailbux CalDAV Auto',
-		VERSION  = '1.8',
-		RELEASE  = '2025-11-20',
+		VERSION  = '1.12',
+		RELEASE  = '2026-01-15',
 		CATEGORY = 'Calendar',
 		DESCRIPTION = 'Auto-configures CalDAV calendar sync with JMAP support - switches per account',
 		REQUIRED = '2.0.0';
@@ -33,6 +33,7 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 		// Calendar invites received as .ics attachments in mail messages
 		$this->addJsonHook('ImportCalendarEvent', 'DoImportCalendarEvent');
 		$this->addJsonHook('RespondToEvent', 'DoRespondToEvent');
+		$this->addJsonHook('RemoveCalendarEvent', 'DoRemoveCalendarEvent');
 
 		// Add JavaScript
 		$this->addJs('calendar-dialog.js');
@@ -576,53 +577,101 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 	}
 	
 	/**
-	 * Parse iCalendar data
+	 * Parse iCalendar data into a list of events.
+	 *
+	 * Master VEVENTs and their per-occurrence overrides (VEVENTs carrying a
+	 * RECURRENCE-ID) are both returned. Recurrence data (RRULE/RDATE/EXDATE) is
+	 * preserved so the client can expand the series into occurrences.
 	 */
-	private function parseICalendar($icalData, $sHref = '')
+	private function parseICalendar($icalData, $sHref = '', $sEtag = '')
 	{
 		$events = [];
-		
-		// Simple iCalendar parser
-		$lines = explode("\n", str_replace("\r\n", "\n", $icalData));
 		$currentEvent = null;
-		
-		foreach ($lines as $line) {
-			$line = trim($line);
-			
-			if ($line === 'BEGIN:VEVENT') {
+		// Properties that may legally occur more than once in a VEVENT
+		$aMulti = ['rdate', 'exdate', 'categories'];
+
+		foreach ($this->unfoldIcs($icalData) as $line) {
+			$line = rtrim($line);
+			if ('' === $line) {
+				continue;
+			}
+
+			if (0 === strcasecmp($line, 'BEGIN:VEVENT')) {
 				$currentEvent = [];
-			} elseif ($line === 'END:VEVENT' && $currentEvent !== null) {
-				// Map to expected format
-				$event = [
+				continue;
+			}
+			if (0 === strcasecmp($line, 'END:VEVENT') && null !== $currentEvent) {
+				$sRecurrenceRaw = (string)($currentEvent['recurrence-id'] ?? '');
+				$events[] = [
 					'uid' => $currentEvent['uid'] ?? '',
 					'summary' => $currentEvent['summary'] ?? 'Untitled',
-					'dtstart' => $this->parseICalDate($currentEvent['dtstart'] ?? ''),
-					'dtend' => $this->parseICalDate($currentEvent['dtend'] ?? ''),
+					'dtstart' => $this->parseICalDate($currentEvent['dtstart'] ?? '', $currentEvent['dtstart_tzid'] ?? ''),
+					'dtend' => $this->parseICalDate($currentEvent['dtend'] ?? '', $currentEvent['dtend_tzid'] ?? ''),
 					'description' => $currentEvent['description'] ?? '',
 					'location' => $currentEvent['location'] ?? '',
-					'allDay' => !isset($currentEvent['dtstart']) || strpos($currentEvent['dtstart'], 'T') === false,
-					'href' => $sHref
+					'allDay' => !isset($currentEvent['dtstart']) || false === strpos((string)$currentEvent['dtstart'], 'T'),
+					'href' => $sHref,
+					'etag' => $sEtag,
+					'rrule' => (string)($currentEvent['rrule'] ?? ''),
+					'rdate' => $currentEvent['rdate'] ?? [],
+					'exdate' => $currentEvent['exdate'] ?? [],
+					'recurrenceId' => '' === $sRecurrenceRaw ? '' : $this->parseICalDate($sRecurrenceRaw, $currentEvent['recurrence-id_tzid'] ?? ''),
+					'sequence' => (string)($currentEvent['sequence'] ?? '0'),
+					'status' => (string)($currentEvent['status'] ?? ''),
+					'organizer' => (string)($currentEvent['organizer'] ?? '')
 				];
-				$events[] = $event;
 				$currentEvent = null;
-			} elseif ($currentEvent !== null && strpos($line, ':') !== false) {
-				list($key, $value) = explode(':', $line, 2);
-				// Handle properties with parameters (e.g., DTSTART;VALUE=DATE:20251112)
-				$key = preg_replace('/;.*$/', '', $key);
-				$currentEvent[strtolower($key)] = $value;
+				continue;
+			}
+			if (null === $currentEvent) {
+				continue;
+			}
+
+			$iPos = strpos($line, ':');
+			if (false === $iPos) {
+				continue;
+			}
+			$sHead = substr($line, 0, $iPos);
+			$sValue = substr($line, $iPos + 1);
+			$sKey = strtolower(strtok($sHead, ';'));
+			$sTzid = '';
+			if (preg_match('/;TZID=([^;:]+)/i', $sHead, $tm)) {
+				$sTzid = trim($tm[1], '"');
+			}
+
+			if (in_array($sKey, $aMulti, true)) {
+				if (!isset($currentEvent[$sKey]) || !is_array($currentEvent[$sKey])) {
+					$currentEvent[$sKey] = [];
+				}
+				foreach (explode(',', $sValue) as $sItem) {
+					$sItem = trim($sItem);
+					if ('' !== $sItem) {
+						$currentEvent[$sKey][] = $this->parseICalDate($sItem, $sTzid);
+					}
+				}
+			} else {
+				$currentEvent[$sKey] = $sValue;
+				if ('' !== $sTzid) {
+					$currentEvent[$sKey . '_tzid'] = $sTzid;
+				}
 			}
 		}
-		
+
 		return $events;
 	}
 	
 	/**
-	 * Parse iCalendar date format to ISO string
+	 * Parse iCalendar date format to ISO string.
+	 *
+	 * A floating local time that carries a TZID (e.g. DTSTART;TZID=Europe/Berlin)
+	 * is converted to UTC so the instant is preserved regardless of the viewer's
+	 * timezone.
 	 */
-	private function parseICalDate($dateStr)
+	private function parseICalDate($dateStr, $sTzid = '')
 	{
-		if (empty($dateStr)) {
-			return date('c');
+		$dateStr = trim((string)$dateStr);
+		if ('' === $dateStr) {
+			return '';
 		}
 		
 		// Handle YYYYMMDD format
@@ -630,13 +679,61 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 			return $matches[1] . '-' . $matches[2] . '-' . $matches[3];
 		}
 		
-		// Handle YYYYMMDDTHHmmssZ format
-		if (preg_match('/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z?$/', $dateStr, $matches)) {
+		// Handle YYYYMMDDTHHmmssZ format (already UTC)
+		if (preg_match('/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/', $dateStr, $matches)) {
+			return $matches[1] . '-' . $matches[2] . '-' . $matches[3] . 'T' . 
+			       $matches[4] . ':' . $matches[5] . ':' . $matches[6] . 'Z';
+		}
+		
+		// Handle YYYYMMDDTHHmmss format (floating or with a TZID)
+		if (preg_match('/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})$/', $dateStr, $matches)) {
+			if ('' !== $sTzid) {
+				$sUtc = $this->tzidToUtcBasic($dateStr, $sTzid);
+				if (null !== $sUtc) {
+					return $this->parseICalDate($sUtc);
+				}
+			}
+			// Unknown/absent zone: preserve previous behaviour (treat as UTC)
 			return $matches[1] . '-' . $matches[2] . '-' . $matches[3] . 'T' . 
 			       $matches[4] . ':' . $matches[5] . ':' . $matches[6] . 'Z';
 		}
 		
 		return $dateStr;
+	}
+
+	/**
+	 * Convert a TZID wall-clock time (YYYYMMDDTHHmmss) into a UTC value.
+	 * Returns null when the timezone is unknown.
+	 */
+	private function tzidToUtcBasic(string $sBasic, string $sTzid) : ?string
+	{
+		if (!preg_match('/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})$/', $sBasic, $m)) {
+			return null;
+		}
+		$sTzid = \trim($sTzid, '"');
+		if ('' === $sTzid || 0 === \strcasecmp($sTzid, 'UTC')) {
+			return $sBasic . 'Z';
+		}
+
+		// Try the TZID as-is, then a few common variants (leading slash and
+		// global "/vendor/.../Region/City" identifiers).
+		$aCandidates = [$sTzid];
+		if (false !== \strpos($sTzid, '/')) {
+			$aCandidates[] = \ltrim($sTzid, '/');
+			$aCandidates[] = \substr($sTzid, \strrpos($sTzid, '/') + 1);
+		}
+
+		$sDateTime = $m[1] . '-' . $m[2] . '-' . $m[3] . ' ' . $m[4] . ':' . $m[5] . ':' . $m[6];
+		foreach ($aCandidates as $sCandidate) {
+			try {
+				$dt = new \DateTime($sDateTime, new \DateTimeZone($sCandidate));
+				$dt->setTimezone(new \DateTimeZone('UTC'));
+				return $dt->format('Ymd\THis\Z');
+			} catch (\Exception $e) {
+				// Try the next candidate
+			}
+		}
+		return null;
 	}
 	
 	/**
@@ -756,6 +853,9 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 			$bAllDay = $this->jsonParam('AllDay', false);
 			$sDescription = $this->jsonParam('Description', '');
 			$sLocation = $this->jsonParam('Location', '');
+			$sRrule = \trim((string) $this->jsonParam('Rrule', ''));
+			$sExdate = (string) $this->jsonParam('Exdate', '');
+			$sRdate = (string) $this->jsonParam('Rdate', '');
 			
 			
 			if (empty($sTitle)) {
@@ -800,6 +900,11 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 			if (!empty($sLocation)) {
 				$sICS .= "LOCATION:" . $this->escapeICS($sLocation) . "\r\n";
 			}
+			if ('' !== $sRrule) {
+				$sICS .= "RRULE:" . $sRrule . "\r\n";
+			}
+			$sICS .= $this->buildDatePropertyLines('RDATE', $sRdate, $bAllDay);
+			$sICS .= $this->buildDatePropertyLines('EXDATE', $sExdate, $bAllDay);
 			
 			$sICS .= "END:VEVENT\r\n";
 			$sICS .= "END:VCALENDAR\r\n";
@@ -854,6 +959,11 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 			$sDescription = $this->jsonParam('Description', '');
 			$sLocation = $this->jsonParam('Location', '');
 			$sEventUrlParam = $this->jsonParam('EventUrl', '');
+			$sRrule = \trim((string) $this->jsonParam('Rrule', ''));
+			$sExdate = (string) $this->jsonParam('Exdate', '');
+			$sRdate = (string) $this->jsonParam('Rdate', '');
+			$sMode = \strtolower(\trim((string) $this->jsonParam('Mode', '')));
+			$sRecurrenceId = \trim((string) $this->jsonParam('RecurrenceId', ''));
 			
 			if (!$sEventId || !$sTitle) {
 				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_EVENT_ID_TITLE_REQUIRED', [], 'Event ID and title required')]);
@@ -876,24 +986,17 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 				$sEndFormatted = $dtEnd->format('Ymd\THis\Z');
 			}
 			
-			// Create updated iCalendar
-			$sICS = "BEGIN:VCALENDAR\r\n";
-			$sICS .= "VERSION:2.0\r\n";
-			$sICS .= "PRODID:-//Mailbux//CalDAV Plugin//EN\r\n";
-			$sICS .= "BEGIN:VEVENT\r\n";
-			$sICS .= "UID:" . $sEventId . "\r\n";
-			$sICS .= "DTSTAMP:" . gmdate('Ymd\THis\Z') . "\r\n";
-			$sICS .= "DTSTART" . ($bAllDay ? ';VALUE=DATE' : '') . ":" . $sStartFormatted . "\r\n";
-			$sICS .= "DTEND" . ($bAllDay ? ';VALUE=DATE' : '') . ":" . $sEndFormatted . "\r\n";
-			$sICS .= "SUMMARY:" . $this->escapeICS($sTitle) . "\r\n";
-			if (!empty($sDescription)) {
-				$sICS .= "DESCRIPTION:" . $this->escapeICS($sDescription) . "\r\n";
-			}
-			if (!empty($sLocation)) {
-				$sICS .= "LOCATION:" . $this->escapeICS($sLocation) . "\r\n";
-			}
-			$sICS .= "END:VEVENT\r\n";
-			$sICS .= "END:VCALENDAR\r\n";
+			$aFields = [
+				'summary' => $sTitle,
+				'start' => $sStartFormatted,
+				'end' => $sEndFormatted,
+				'allDay' => (bool) $bAllDay,
+				'description' => $sDescription,
+				'location' => $sLocation,
+				'rrule' => $sRrule,
+				'exdate' => $sExdate,
+				'rdate' => $sRdate
+			];
 			
 			// Decrypt password using MAIN account's CryptKey
 			$oMainAccount = $this->Manager()->Actions()->GetMainAccountFromToken();
@@ -908,10 +1011,27 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 				$sPassword = (string)$sPassword;
 			}
 			
-			// PUT updated event (reuse the server-reported resource URL when available)
+			// Reuse the server-reported resource URL when available
 			$sEventUrl = $this->resolveEventUrl($aConfig, $sEventUrlParam);
 			if ('' === $sEventUrl) {
 				$sEventUrl = $this->calendarUrl($aConfig, $sCalendarId) . '/' . rawurlencode($sEventId) . '.ics';
+			}
+			
+			// Fetch the current resource so recurrence rules, overrides and any
+			// properties the plugin does not understand survive the update.
+			$getResult = $this->makeCalDAVRequest($sEventUrl, 'GET', $aConfig['User'], $sPassword);
+			$sExisting = (200 === $getResult['code'] && !empty($getResult['body'])) ? (string) $getResult['body'] : '';
+			
+			$bOccurrence = ('occurrence' === $sMode) || ('' !== $sRecurrenceId);
+			
+			if ($bOccurrence) {
+				// Edit a single occurrence of a recurring series (RECURRENCE-ID override)
+				$sICS = $this->buildOccurrenceOverrideIcs($sExisting, $sEventId, $sRecurrenceId, $aFields);
+			} elseif ('' !== $sExisting && false !== \stripos($sExisting, 'BEGIN:VEVENT')) {
+				// Edit the whole series in place (keeps RRULE/EXDATE and overrides)
+				$sICS = $this->updateSeriesIcs($sExisting, $aFields);
+			} else {
+				$sICS = $this->buildNewEventIcs($sEventId, $aFields);
 			}
 			
 			$result = $this->makeCalDAVRequest(
@@ -1004,7 +1124,448 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 	{
 		return str_replace(["\r\n", "\n", "\r", ",", ";"], ["\\n", "\\n", "\\n", "\\,", "\\;"], $text);
 	}
-	
+
+	/* ------------------------------------------------------------------
+	   Recurrence helpers
+	   ------------------------------------------------------------------ */
+
+	/**
+	 * Build a standalone VCALENDAR/VEVENT resource for a single event.
+	 */
+	private function buildNewEventIcs(string $sUid, array $aFields) : string
+	{
+		$aIcs = [
+			'BEGIN:VCALENDAR',
+			'VERSION:2.0',
+			'PRODID:-//Mailbux//CalDAV Plugin//EN',
+			'BEGIN:VEVENT',
+			'UID:' . $sUid,
+			'DTSTAMP:' . \gmdate('Ymd\THis\Z')
+		];
+		foreach ($this->buildVEventDetailLines($aFields) as $sLine) {
+			$aIcs[] = $sLine;
+		}
+		$aIcs[] = 'END:VEVENT';
+		$aIcs[] = 'END:VCALENDAR';
+		return \implode("\r\n", $aIcs) . "\r\n";
+	}
+
+	/**
+	 * DTSTART/DTEND/SUMMARY/DESCRIPTION/LOCATION/(RRULE|RDATE|EXDATE) lines.
+	 */
+	private function buildVEventDetailLines(array $aFields) : array
+	{
+		$bAllDay = !empty($aFields['allDay']);
+		$aOut = [];
+		$aOut[] = 'DTSTART' . ($bAllDay ? ';VALUE=DATE' : '') . ':' . $aFields['start'];
+		$aOut[] = 'DTEND' . ($bAllDay ? ';VALUE=DATE' : '') . ':' . $aFields['end'];
+		$aOut[] = 'SUMMARY:' . $this->escapeICSText((string) $aFields['summary']);
+		if ('' !== \trim((string) $aFields['description'])) {
+			$aOut[] = 'DESCRIPTION:' . $this->escapeICSText((string) $aFields['description']);
+		}
+		if ('' !== \trim((string) $aFields['location'])) {
+			$aOut[] = 'LOCATION:' . $this->escapeICSText((string) $aFields['location']);
+		}
+		if (isset($aFields['rrule']) && '' !== \trim((string) $aFields['rrule'])) {
+			$aOut[] = 'RRULE:' . \trim((string) $aFields['rrule']);
+		}
+		foreach ($this->buildDatePropertyLinesArr('RDATE', (string) ($aFields['rdate'] ?? ''), $bAllDay) as $sLine) {
+			$aOut[] = $sLine;
+		}
+		foreach ($this->buildDatePropertyLinesArr('EXDATE', (string) ($aFields['exdate'] ?? ''), $bAllDay) as $sLine) {
+			$aOut[] = $sLine;
+		}
+		return $aOut;
+	}
+
+	/**
+	 * RDATE/EXDATE lines (string form, ready to concatenate into an ICS blob).
+	 */
+	private function buildDatePropertyLines(string $sName, string $sValues, bool $bAllDay) : string
+	{
+		$a = $this->buildDatePropertyLinesArr($sName, $sValues, $bAllDay);
+		return $a ? \implode("\r\n", $a) . "\r\n" : '';
+	}
+
+	/**
+	 * RDATE/EXDATE lines (array form) from a client supplied value list.
+	 * Accepts comma and/or newline separated values in ISO or iCalendar form.
+	 */
+	private function buildDatePropertyLinesArr(string $sName, string $sValues, bool $bAllDay) : array
+	{
+		$aOut = [];
+		$sValues = \trim($sValues);
+		if ('' === $sValues) {
+			return $aOut;
+		}
+		foreach (\preg_split('/[\r\n]+/', $sValues) as $sLine) {
+			foreach (\explode(',', $sLine) as $sVal) {
+				$sFmt = $this->formatIcsDateValue($sVal, $bAllDay);
+				if ('' !== $sFmt) {
+					$aOut[] = $sName . ($bAllDay ? ';VALUE=DATE' : '') . ':' . $sFmt;
+				}
+			}
+		}
+		return $aOut;
+	}
+
+	/**
+	 * Normalise a client supplied date value (ISO or iCalendar basic) to an
+	 * iCalendar property value. Timed values are converted to UTC.
+	 */
+	private function formatIcsDateValue($sValue, bool $bAllDay) : string
+	{
+		$sValue = \trim((string) $sValue);
+		if ('' === $sValue) {
+			return '';
+		}
+		if ($bAllDay) {
+			if (\preg_match('/^(\d{4})(\d{2})(\d{2})/', $sValue, $m)) {
+				return $m[1] . $m[2] . $m[3];
+			}
+			return \str_replace('-', '', \substr($sValue, 0, 10));
+		}
+		if (\preg_match('/^\d{8}T\d{6}Z?$/', $sValue)) {
+			return $sValue;
+		}
+		try {
+			$dt = new \DateTime($sValue);
+			$dt->setTimezone(new \DateTimeZone('UTC'));
+			return $dt->format('Ymd\THis\Z');
+		} catch (\Exception $e) {
+			return $sValue;
+		}
+	}
+
+	/**
+	 * Rewrite a stored VCALENDAR so its master VEVENT matches $aFields while
+	 * keeping recurrence overrides and unrelated properties intact.
+	 */
+	private function updateSeriesIcs(string $sIcs, array $aFields) : string
+	{
+		$aLines = $this->unfoldIcs($sIcs);
+		$iCount = \count($aLines);
+		$aManaged = ['DTSTART', 'DTEND', 'SUMMARY', 'DESCRIPTION', 'LOCATION', 'RRULE', 'EXDATE'];
+		$aOut = [];
+		$bMasterDone = false;
+
+		for ($i = 0; $i < $iCount; $i++) {
+			$sLine = \rtrim($aLines[$i]);
+			if ('' === $sLine) {
+				continue;
+			}
+			if (0 === \strcasecmp($sLine, 'BEGIN:VEVENT')) {
+				// Locate this block
+				$bOverride = false;
+				$iEnd = $i;
+				for ($j = $i + 1; $j < $iCount; $j++) {
+					$sInner = \rtrim($aLines[$j]);
+					if (0 === \strcasecmp($sInner, 'END:VEVENT')) {
+						$iEnd = $j;
+						break;
+					}
+					if (0 === \stripos(\ltrim($sInner), 'RECURRENCE-ID')) {
+						$bOverride = true;
+					}
+				}
+				if (!$bOverride && !$bMasterDone) {
+					$bMasterDone = true;
+					$aOut[] = 'BEGIN:VEVENT';
+					for ($j = $i + 1; $j <= $iEnd; $j++) {
+						$sInner = \rtrim($aLines[$j]);
+						if (0 === \strcasecmp($sInner, 'END:VEVENT')) {
+							foreach ($this->buildVEventDetailLines($aFields) as $sNew) {
+								$aOut[] = $sNew;
+							}
+							$aOut[] = 'END:VEVENT';
+							break;
+						}
+						$sKey = \strtoupper(\strtok(\substr($sInner, 0, false !== \strpos($sInner, ':') ? \strpos($sInner, ':') : \strlen($sInner)), ';'));
+						if (\in_array($sKey, $aManaged, true)) {
+							continue;
+						}
+						$aOut[] = $sInner;
+					}
+					$i = $iEnd;
+					continue;
+				}
+				// Non-master (override) block: copy verbatim
+				for ($j = $i; $j <= $iEnd; $j++) {
+					$aOut[] = \rtrim($aLines[$j]);
+				}
+				$i = $iEnd;
+				continue;
+			}
+			$aOut[] = $sLine;
+		}
+
+		return \implode("\r\n", $aOut) . "\r\n";
+	}
+
+	/**
+	 * Add/replace a single occurrence (RECURRENCE-ID override) inside a stored
+	 * VCALENDAR, preserving the master and any other overrides.
+	 */
+	private function buildOccurrenceOverrideIcs(string $sExisting, string $sUid, string $sRecurrenceId, array $aFields) : string
+	{
+		$aFields['rrule'] = '';
+		$aFields['exdate'] = '';
+		$aFields['rdate'] = '';
+
+		$sRecFmt = $this->formatIcsDateValue($sRecurrenceId, !empty($aFields['allDay']));
+
+		$aBlock = ['BEGIN:VEVENT', 'UID:' . $sUid];
+		if ('' !== $sRecFmt) {
+			$aBlock[] = 'RECURRENCE-ID' . (!empty($aFields['allDay']) ? ';VALUE=DATE' : '') . ':' . $sRecFmt;
+		}
+		$aBlock[] = 'DTSTAMP:' . \gmdate('Ymd\THis\Z');
+		foreach ($this->buildVEventDetailLines($aFields) as $sLine) {
+			$aBlock[] = $sLine;
+		}
+		$aBlock[] = 'END:VEVENT';
+
+		if ('' === $sExisting || false === \stripos($sExisting, 'BEGIN:VEVENT')) {
+			return "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Mailbux//CalDAV Plugin//EN\r\n"
+				. \implode("\r\n", $aBlock) . "\r\nEND:VCALENDAR\r\n";
+		}
+
+		$sTarget = $this->parseICalDate($sRecurrenceId);
+		$aLines = $this->unfoldIcs($sExisting);
+		$iCount = \count($aLines);
+		$aOut = [];
+		$bInserted = false;
+
+		for ($i = 0; $i < $iCount; $i++) {
+			$sLine = \rtrim($aLines[$i]);
+			if ('' === $sLine) {
+				continue;
+			}
+			if (0 === \strcasecmp($sLine, 'BEGIN:VEVENT')) {
+				$iEnd = $i;
+				for ($j = $i + 1; $j < $iCount; $j++) {
+					if (0 === \strcasecmp(\rtrim($aLines[$j]), 'END:VEVENT')) {
+						$iEnd = $j;
+						break;
+					}
+				}
+				$bSame = false;
+				for ($j = $i + 1; $j < $iEnd; $j++) {
+					$sInner = \ltrim($aLines[$j]);
+					if (0 === \stripos($sInner, 'RECURRENCE-ID') && false !== \strpos($sInner, ':')) {
+						$sRaw = \trim(\substr($sInner, \strpos($sInner, ':') + 1));
+						if ($this->parseICalDate($sRaw) === $sTarget) {
+							$bSame = true;
+						}
+						break;
+					}
+				}
+				if ($bSame) {
+					foreach ($aBlock as $sNew) {
+						$aOut[] = $sNew;
+					}
+					$bInserted = true;
+				} else {
+					for ($j = $i; $j <= $iEnd; $j++) {
+						$aOut[] = \rtrim($aLines[$j]);
+					}
+				}
+				$i = $iEnd;
+				continue;
+			}
+			if (0 === \strcasecmp($sLine, 'END:VCALENDAR') && !$bInserted) {
+				foreach ($aBlock as $sNew) {
+					$aOut[] = $sNew;
+				}
+				$bInserted = true;
+				$aOut[] = $sLine;
+				continue;
+			}
+			$aOut[] = $sLine;
+		}
+
+		return \implode("\r\n", $aOut) . "\r\n";
+	}
+
+	/**
+	 * Add an EXDATE for one occurrence and drop any override for that occurrence.
+	 * Used when deleting a single occurrence of a recurring event.
+	 */
+	private function addExdateToSeries(string $sIcs, string $sRecurrenceId) : string
+	{
+		$bAllDay = false;
+		foreach ($this->parseICalendar($sIcs) as $aEv) {
+			if ('' === $aEv['recurrenceId']) {
+				$bAllDay = !empty($aEv['allDay']);
+				break;
+			}
+		}
+		$sTarget = $this->parseICalDate($sRecurrenceId);
+		$sExFmt = $this->formatIcsDateValue($sRecurrenceId, $bAllDay);
+
+		$aLines = $this->unfoldIcs($sIcs);
+		$iCount = \count($aLines);
+		$aOut = [];
+		$bMasterDone = false;
+
+		for ($i = 0; $i < $iCount; $i++) {
+			$sLine = \rtrim($aLines[$i]);
+			if ('' === $sLine) {
+				continue;
+			}
+			if (0 === \strcasecmp($sLine, 'BEGIN:VEVENT')) {
+				$iEnd = $i;
+				$bIsOverride = false;
+				for ($j = $i + 1; $j < $iCount; $j++) {
+					$sInner = \rtrim($aLines[$j]);
+					if (0 === \strcasecmp($sInner, 'END:VEVENT')) {
+						$iEnd = $j;
+						break;
+					}
+					$sTrim = \ltrim($sInner);
+					if (0 === \stripos($sTrim, 'RECURRENCE-ID') && false !== \strpos($sTrim, ':')) {
+						if ($this->parseICalDate(\trim(\substr($sTrim, \strpos($sTrim, ':') + 1))) === $sTarget) {
+							$bIsOverride = true;
+						}
+					}
+				}
+				if ($bIsOverride) {
+					// Drop the override for the removed occurrence
+					$i = $iEnd;
+					continue;
+				}
+				if (!$bMasterDone) {
+					$bMasterDone = true;
+					for ($j = $i; $j <= $iEnd; $j++) {
+						$sInner = \rtrim($aLines[$j]);
+						if (0 === \strcasecmp($sInner, 'END:VEVENT')) {
+							if ('' !== $sExFmt) {
+								$aOut[] = 'EXDATE' . ($bAllDay ? ';VALUE=DATE' : '') . ':' . $sExFmt;
+							}
+						}
+						$aOut[] = $sInner;
+					}
+					$i = $iEnd;
+					continue;
+				}
+				for ($j = $i; $j <= $iEnd; $j++) {
+					$aOut[] = \rtrim($aLines[$j]);
+				}
+				$i = $iEnd;
+				continue;
+			}
+			$aOut[] = $sLine;
+		}
+
+		return \implode("\r\n", $aOut) . "\r\n";
+	}
+
+	/**
+	 * Indexed list of VEVENT blocks inside an unfolded line array.
+	 */
+	private function getVEventBlocks(array $aLines) : array
+	{
+		$aBlocks = [];
+		$iCount = \count($aLines);
+		for ($i = 0; $i < $iCount; $i++) {
+			if (0 === \strcasecmp(\rtrim($aLines[$i]), 'BEGIN:VEVENT')) {
+				$j = $i + 1;
+				while ($j < $iCount && 0 !== \strcasecmp(\rtrim($aLines[$j]), 'END:VEVENT')) {
+					$j++;
+				}
+				$aBlocks[] = ['start' => $i, 'end' => \min($j, $iCount - 1)];
+				$i = $j;
+			}
+		}
+		return $aBlocks;
+	}
+
+	/**
+	 * UID + normalised RECURRENCE-ID identifying a recurrence override block,
+	 * or '' when the block is not an override.
+	 */
+	private function veventBlockKey(array $aLines, array $aBlock) : string
+	{
+		$sUid = '';
+		$sRec = '';
+		for ($k = $aBlock['start']; $k <= $aBlock['end']; $k++) {
+			$sLine = \ltrim($aLines[$k]);
+			$iPos = \strpos($sLine, ':');
+			if (false === $iPos) {
+				continue;
+			}
+			$sKey = \strtoupper(\strtok(\substr($sLine, 0, $iPos), ';'));
+			$sVal = \trim(\substr($sLine, $iPos + 1));
+			if ('UID' === $sKey) {
+				$sUid = $sVal;
+			} elseif ('RECURRENCE-ID' === $sKey) {
+				$sRec = $this->parseICalDate($sVal);
+			}
+		}
+		return '' === $sRec ? '' : ($sUid . '|' . $sRec);
+	}
+
+	/**
+	 * Merge recurrence-override VEVENTs from $sIncoming into a stored resource.
+	 * Used when a received invite updates/CANCELs a single recurring occurrence.
+	 */
+	private function mergeRecurrenceOverride(string $sBase, string $sIncoming) : string
+	{
+		$aBaseLines = $this->unfoldIcs($sBase);
+		$aInLines = $this->unfoldIcs($sIncoming);
+		$aBaseBlocks = $this->getVEventBlocks($aBaseLines);
+
+		$aIncomingByKey = [];
+		foreach ($this->getVEventBlocks($aInLines) as $aIn) {
+			$sKey = $this->veventBlockKey($aInLines, $aIn);
+			if ('' !== $sKey) {
+				$aIncomingByKey[$sKey] = \array_slice($aInLines, $aIn['start'], $aIn['end'] - $aIn['start'] + 1);
+			}
+		}
+		if (!$aIncomingByKey) {
+			return $sIncoming;
+		}
+
+		$aOut = [];
+		$iCount = \count($aBaseLines);
+		$iBlockIndex = 0;
+		$aEmitted = [];
+
+		for ($i = 0; $i < $iCount; $i++) {
+			$sLine = \rtrim($aBaseLines[$i]);
+			$aBase = $aBaseBlocks[$iBlockIndex] ?? null;
+			if ($aBase && $i === $aBase['start']) {
+				$sKey = $this->veventBlockKey($aBaseLines, $aBase);
+				if ('' !== $sKey && isset($aIncomingByKey[$sKey])) {
+					foreach ($aIncomingByKey[$sKey] as $sAdd) {
+						$aOut[] = $sAdd;
+					}
+					$aEmitted[$sKey] = true;
+				} else {
+					for ($k = $aBase['start']; $k <= $aBase['end']; $k++) {
+						$aOut[] = \rtrim($aBaseLines[$k]);
+					}
+				}
+				$i = $aBase['end'];
+				$iBlockIndex++;
+				continue;
+			}
+			if (0 === \strcasecmp($sLine, 'END:VCALENDAR')) {
+				foreach ($aIncomingByKey as $sKey => $aAddLines) {
+					if (empty($aEmitted[$sKey])) {
+						foreach ($aAddLines as $sAdd) {
+							$aOut[] = $sAdd;
+						}
+					}
+				}
+				$aOut[] = $sLine;
+				continue;
+			}
+			$aOut[] = $sLine;
+		}
+
+		return \implode("\r\n", $aOut) . "\r\n";
+	}
+
 	/**
 	 * Parse CalDAV XML response
 	 */
@@ -1029,10 +1590,15 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 				if ($hrefNodes->length) {
 					$sHref = trim($hrefNodes->item(0)->nodeValue);
 				}
+				$sEtag = '';
+				$etagNodes = $xpath->query('.//D:getetag', $response);
+				if ($etagNodes->length) {
+					$sEtag = trim($etagNodes->item(0)->nodeValue);
+				}
 				$calendarData = $xpath->query('.//C:calendar-data', $response);
 				if ($calendarData->length > 0) {
 					$icalData = $calendarData->item(0)->nodeValue;
-					$parsedEvents = $this->parseICalendar($icalData, $sHref);
+					$parsedEvents = $this->parseICalendar($icalData, $sHref, $sEtag);
 					$events = array_merge($events, $parsedEvents);
 				}
 			}
@@ -1148,6 +1714,56 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 	}
 
 	/**
+	 * Rewrite a DTSTART/DTEND/RECURRENCE-ID/RDATE/EXDATE line that carries a
+	 * TZID into an explicit UTC value, so the stored event does not depend on a
+	 * VTIMEZONE component being present/preserved by the CalDAV server.
+	 *
+	 * @return string[] one or more lines (RDATE/EXDATE may hold a list)
+	 */
+	private function convertTzidLine(string $sLine) : array
+	{
+		$iPos = \strpos($sLine, ':');
+		if (false === $iPos) {
+			return [$sLine];
+		}
+		$sHead = \substr($sLine, 0, $iPos);
+		if (false === \stripos($sHead, 'TZID=')) {
+			return [$sLine];
+		}
+		$sName = \strtoupper(\strtok($sHead, ';'));
+		if (!\in_array($sName, ['DTSTART', 'DTEND', 'RECURRENCE-ID', 'RDATE', 'EXDATE'], true)) {
+			return [$sLine];
+		}
+		if (!\preg_match('/;TZID=([^;:]+)/i', $sHead, $tm)) {
+			return [$sLine];
+		}
+		$sTzid = \trim($tm[1], '"');
+		$sValue = \substr($sLine, $iPos + 1);
+		$sNewHead = \preg_replace('/;TZID=[^;:]+/i', '', $sHead);
+
+		$aOut = [];
+		$bFailed = false;
+		foreach (\explode(',', $sValue) as $sVal) {
+			$sVal = \trim($sVal);
+			if ('' === $sVal) {
+				continue;
+			}
+			$sUtc = $this->tzidToUtcBasic($sVal, $sTzid);
+			if (null === $sUtc) {
+				$bFailed = true;
+				break;
+			}
+			$aOut[] = $sNewHead . ':' . $sUtc;
+		}
+		if ($bFailed || !$aOut) {
+			// Not a convertible local time (e.g. already UTC or a DATE):
+			// keep the original line untouched.
+			return [$sLine];
+		}
+		return $aOut;
+	}
+
+	/**
 	 * Sanitize a received invite so it can be stored as a CalDAV resource:
 	 * ensure UID/DTSTAMP, drop the iTIP METHOD and add the local user as attendee.
 	 */
@@ -1201,9 +1817,42 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 					$bHasLocalAttendee = true;
 				}
 			}
-			$aOut[] = $sLine;
+			foreach ($this->convertTzidLine($sLine) as $sConverted) {
+				$aOut[] = $sConverted;
+			}
 		}
 
+		$sOut = \implode("\r\n", $aOut) . "\r\n";
+		// When every TZID reference has been resolved to UTC the VTIMEZONE
+		// blocks are no longer needed; drop them so the stored event looks the
+		// same as an event created directly by the plugin.
+		if (false === \stripos($sOut, 'TZID=')) {
+			$sOut = $this->removeVtimezoneBlocks($sOut);
+		}
+		return $sOut;
+	}
+
+	/**
+	 * Remove all VTIMEZONE components from an iCalendar text.
+	 */
+	private function removeVtimezoneBlocks(string $sIcs) : string
+	{
+		$aOut = [];
+		$bInVtimezone = false;
+		foreach ($this->unfoldIcs($sIcs) as $sLine) {
+			if (0 === \stripos($sLine, 'BEGIN:VTIMEZONE')) {
+				$bInVtimezone = true;
+				continue;
+			}
+			if (0 === \stripos($sLine, 'END:VTIMEZONE')) {
+				$bInVtimezone = false;
+				continue;
+			}
+			if ($bInVtimezone) {
+				continue;
+			}
+			$aOut[] = $sLine;
+		}
 		return \implode("\r\n", $aOut) . "\r\n";
 	}
 
@@ -1211,7 +1860,7 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 	 * Build an iTIP METHOD:REPLY calendar object for the current user.
 	 */
 	private function buildReplyIcs(string $sUid, string $sOrganizer, string $sAttendee,
-		string $sPartstat, string $sSummary, string $sSequence) : string
+		string $sPartstat, string $sSummary, string $sSequence, string $sRecurrenceId = '') : string
 	{
 		$sOrganizerValue = (0 === \stripos($sOrganizer, 'mailto:')) ? $sOrganizer : 'mailto:' . $sOrganizer;
 
@@ -1222,6 +1871,9 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 		$sIcs .= "BEGIN:VEVENT\r\n";
 		$sIcs .= "UID:" . $this->escapeICSText($sUid) . "\r\n";
 		$sIcs .= "DTSTAMP:" . \gmdate('Ymd\THis\Z') . "\r\n";
+		if ('' !== $sRecurrenceId) {
+			$sIcs .= "RECURRENCE-ID:" . $this->escapeICSText($sRecurrenceId) . "\r\n";
+		}
 		if ('' !== $sSequence && \ctype_digit($sSequence)) {
 			$sIcs .= "SEQUENCE:" . $sSequence . "\r\n";
 		}
@@ -1276,6 +1928,16 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 
 			$sCalendarId = $this->jsonParam('CalendarId', 'default');
 			$sEventUrl = $this->calendarUrl($aConfig, $sCalendarId) . '/' . \rawurlencode($sUid) . '.ics';
+
+			// A per-occurrence update (RECURRENCE-ID) must be merged into the
+			// existing series resource instead of overwriting the whole series.
+			$sRecurrenceId = $this->inviteProp($aInvite, 'RECURRENCE-ID');
+			if ('' !== $sRecurrenceId) {
+				$getResult = $this->makeCalDAVRequest($sEventUrl, 'GET', $aConfig['User'], $sPassword);
+				if (200 === $getResult['code'] && false !== \stripos((string) $getResult['body'], 'BEGIN:VEVENT')) {
+					$sIcs = $this->mergeRecurrenceOverride((string) $getResult['body'], $sIcs);
+				}
+			}
 
 			$result = $this->makeCalDAVRequest(
 				$sEventUrl,
@@ -1335,6 +1997,7 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 			$sOrganizer = $this->inviteMailAddress($this->inviteProp($aInvite, 'ORGANIZER'));
 			$sSummary = $this->inviteProp($aInvite, 'SUMMARY');
 			$sSequence = $this->inviteProp($aInvite, 'SEQUENCE');
+			$sRecurrenceId = \trim((string) $this->jsonParam('RecurrenceId', $this->inviteProp($aInvite, 'RECURRENCE-ID')));
 
 			if ('' === $sOrganizer) {
 				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_NO_ORGANIZER', [], 'No organizer to reply to')]);
@@ -1350,7 +2013,7 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 				}
 			}
 
-			$sReplyIcs = $this->buildReplyIcs($sUid, $sOrganizer, $sEmail, $sResponse, $sSummary, $sSequence);
+			$sReplyIcs = $this->buildReplyIcs($sUid, $sOrganizer, $sEmail, $sResponse, $sSummary, $sSequence, $sRecurrenceId);
 
 			$this->sendInviteReply($oAccount, $sOrganizer, $sEmail, $sSummary, $sResponse, $sReplyIcs);
 
@@ -1358,10 +2021,72 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 			$sCalendarId = (string) $this->jsonParam('CalendarId', '');
 			$sEventUid = (string) $this->jsonParam('Uid', $sUid);
 			if ('' !== $sCalendarId && '' !== $sEventUid) {
-				$this->updateEventPartstat($oAccount, $sCalendarId, $sEventUid, $sEmail, $sResponse);
+				$this->updateEventPartstat($oAccount, $sCalendarId, $sEventUid, $sEmail, $sResponse, $sRecurrenceId);
 			}
 
 			return $this->jsonResponse(__FUNCTION__, ['success' => true, 'response' => $sResponse]);
+
+		} catch (\Exception $e) {
+			return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $e->getMessage()]);
+		}
+	}
+
+	/**
+	 * Remove an event from a calendar. Used to action a received iTIP CANCEL,
+	 * and to delete a recurring event either as a whole series or a single
+	 * occurrence (excluded via EXDATE).
+	 */
+	public function DoRemoveCalendarEvent() : array
+	{
+		try {
+			$oAccount = $this->Manager()->Actions()->getAccountFromToken();
+			if (!$oAccount) {
+				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_NOT_LOGGED_IN', [], 'Not logged in')]);
+			}
+
+			$aConfig = $this->getCalendarConfig($oAccount);
+			if (!$aConfig) {
+				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_NOT_CONFIGURED', [], 'Calendar not configured')]);
+			}
+
+			$sEventId = (string) $this->jsonParam('EventId', '');
+			$sCalendarId = (string) $this->jsonParam('CalendarId', 'default');
+			$sEventUrlParam = (string) $this->jsonParam('EventUrl', '');
+			$sRecurrenceId = \trim((string) $this->jsonParam('RecurrenceId', ''));
+			$sMode = \strtolower(\trim((string) $this->jsonParam('Mode', 'series')));
+
+			if ('' === $sEventId) {
+				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_EVENT_ID_REQUIRED', [], 'Event ID required')]);
+			}
+
+			$sPassword = $this->getDecryptedPassword($aConfig);
+			if (null === $sPassword) {
+				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_NO_ENCRYPTION_KEY', [], 'Cannot access encryption key')]);
+			}
+
+			$sEventUrl = $this->resolveEventUrl($aConfig, $sEventUrlParam);
+			if ('' === $sEventUrl) {
+				$sEventUrl = $this->calendarUrl($aConfig, $sCalendarId) . '/' . \rawurlencode($sEventId) . '.ics';
+			}
+
+			if ('occurrence' === $sMode && '' !== $sRecurrenceId) {
+				$getResult = $this->makeCalDAVRequest($sEventUrl, 'GET', $aConfig['User'], $sPassword);
+				if (200 !== $getResult['code'] || empty($getResult['body'])) {
+					return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_CALDAV', ['CODE' => $getResult['code']], 'CalDAV error: ' . $getResult['code'])]);
+				}
+				$sNewIcs = $this->addExdateToSeries((string) $getResult['body'], $sRecurrenceId);
+				$putResult = $this->makeCalDAVRequest($sEventUrl, 'PUT', $aConfig['User'], $sPassword, $sNewIcs, ['Content-Type: text/calendar; charset=utf-8']);
+				if (\in_array($putResult['code'], [200, 201, 204], true)) {
+					return $this->jsonResponse(__FUNCTION__, ['success' => true, 'mode' => 'occurrence']);
+				}
+				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_CALDAV', ['CODE' => $putResult['code']], 'CalDAV error: ' . $putResult['code'])]);
+			}
+
+			$result = $this->makeCalDAVRequest($sEventUrl, 'DELETE', $aConfig['User'], $sPassword);
+			if (\in_array($result['code'], [200, 204, 404], true)) {
+				return $this->jsonResponse(__FUNCTION__, ['success' => true, 'mode' => 'series']);
+			}
+			return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_CALDAV', ['CODE' => $result['code']], 'CalDAV error: ' . $result['code'])]);
 
 		} catch (\Exception $e) {
 			return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $e->getMessage()]);
@@ -1447,7 +2172,7 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 	 * Best-effort update of the local attendee PARTSTAT on a stored event.
 	 */
 	private function updateEventPartstat(\RainLoop\Model\Account $oAccount, string $sCalendarId,
-		string $sUid, string $sEmail, string $sPartstat) : void
+		string $sUid, string $sEmail, string $sPartstat, string $sRecurrenceId = '') : void
 	{
 		try {
 			$aConfig = $this->getCalendarConfig($oAccount);
@@ -1470,21 +2195,58 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 				return;
 			}
 
+			// When a RECURRENCE-ID is given only that override is updated,
+			// otherwise the master VEVENT is updated.
+			$sTargetRec = '' === $sRecurrenceId ? null : $this->parseICalDate($sRecurrenceId);
+
 			$aOut = [];
 			$bUpdated = false;
+			$bInEvent = false;
+			$bInTarget = false;
 			foreach ($this->unfoldIcs($sIcs) as $sLine) {
-				if (0 === \stripos($sLine, 'ATTENDEE') && false !== \stripos($sLine, $sEmail)) {
-					if (\preg_match('/PARTSTAT=[^;:]+/i', $sLine)) {
-						$sLine = \preg_replace('/PARTSTAT=[^;:]+/i', 'PARTSTAT=' . $sPartstat, $sLine);
+				$sTrim = \rtrim($sLine);
+				if (0 === \strcasecmp($sTrim, 'BEGIN:VEVENT')) {
+					$bInEvent = true;
+					$bInTarget = false;
+					$aOut[] = $sTrim;
+					continue;
+				}
+				if (0 === \strcasecmp($sTrim, 'END:VEVENT')) {
+					$bInEvent = false;
+					$bInTarget = false;
+					$aOut[] = $sTrim;
+					continue;
+				}
+				if ($bInEvent) {
+					$sTrimLead = \ltrim($sTrim);
+					$iColon = \strpos($sTrimLead, ':');
+					$sKey = (false !== $iColon)
+						? \strtoupper(\strtok(\substr($sTrimLead, 0, $iColon), ';'))
+						: '';
+					if ('RECURRENCE-ID' === $sKey) {
+						$bInTarget = (null !== $sTargetRec)
+							&& ($this->parseICalDate(\trim(\substr($sTrimLead, $iColon + 1))) === $sTargetRec);
+						$aOut[] = $sTrim;
+						continue;
+					}
+					if ('UID' === $sKey && null === $sTargetRec) {
+						$bInTarget = true;
+						$aOut[] = $sTrim;
+						continue;
+					}
+				}
+				if ($bInTarget && 0 === \stripos($sTrim, 'ATTENDEE') && false !== \stripos($sTrim, $sEmail)) {
+					if (\preg_match('/PARTSTAT=[^;:]+/i', $sTrim)) {
+						$sTrim = \preg_replace('/PARTSTAT=[^;:]+/i', 'PARTSTAT=' . $sPartstat, $sTrim);
 					} else {
-						$iPos = \strpos($sLine, ':');
+						$iPos = \strpos($sTrim, ':');
 						if (false !== $iPos) {
-							$sLine = \substr($sLine, 0, $iPos) . ';PARTSTAT=' . $sPartstat . \substr($sLine, $iPos);
+							$sTrim = \substr($sTrim, 0, $iPos) . ';PARTSTAT=' . $sPartstat . \substr($sTrim, $iPos);
 						}
 					}
 					$bUpdated = true;
 				}
-				$aOut[] = $sLine;
+				$aOut[] = $sTrim;
 			}
 
 			if (!$bUpdated) {
