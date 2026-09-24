@@ -101,6 +101,11 @@
 	text-decoration: underline;
 }
 
+/* Meeting / video-conference link pulled out of the invite location */
+#messageItem .caldavInviteMeeting {
+	font-weight: 600;
+}
+
 /* ==================================================================
    Calendar button + dialog (calendar-dialog.js)
    ================================================================== */
@@ -956,6 +961,20 @@ html.rl-left-panel-disabled #rl-left .buttonCompose {
 .mailbux-cal-dialog .mc-location-osm-attr {
 	color: #8c8c8c;
 	font-size: 11px;
+}
+
+/* Meeting / video-conference link shown under the location field */
+.mailbux-cal-dialog .mc-location-meeting {
+	margin-top: 2px;
+	font-size: 12px;
+}
+
+.mailbux-cal-dialog .mc-location-meeting:not([hidden]) {
+	display: block;
+}
+
+.mailbux-cal-dialog .mc-location-meeting-link {
+	font-weight: 600;
 }
 
 /* ---- Responsive & dark mode ---- */

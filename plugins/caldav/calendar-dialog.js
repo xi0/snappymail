@@ -892,6 +892,9 @@ function buildDialog() {
 								<a class="mc-location-osm" target="_blank" rel="noopener noreferrer"></a>
 								<a class="mc-location-osm-attr" target="_blank" rel="noopener noreferrer"></a>
 							</div>
+							<div class="mc-location-meeting" hidden>
+								<a class="mc-location-meeting-link" target="_blank" rel="noopener noreferrer"></a>
+							</div>
 						</div>
 						<label class="mc-field">
 							<span class="mc-field-label mc-lbl-description"></span>
@@ -986,7 +989,10 @@ function buildDialog() {
 	q('[name="repeat"]').addEventListener('change', () => toggleRepeatFields());
 	q('[name="repeatends"]').addEventListener('change', () => toggleRepeatFields());
 	q('[name="onlythis"]').addEventListener('change', () => applyOnlyThis());
-	q('[name="location"]').addEventListener('input', event => updateLocationMap(event.target.value));
+	q('[name="location"]').addEventListener('input', event => {
+		updateLocationMap(event.target.value);
+		updateLocationMeeting(event.target.value);
+	});
 	q('[data-cal-delete]').addEventListener('click', deleteEventForm);
 
 	dialogEl.addEventListener('click', event => {
@@ -1258,8 +1264,11 @@ function updateLocationMap(value) {
 		box.hidden = true;
 		return;
 	}
-	if (osm.looksLikeAddress(value)) {
-		link.href = osm.searchUrl(value);
+	// When the location also carries a meeting link, search only the address.
+	const Meeting = window.MailbuxCalDavMeeting;
+	const address = (Meeting && Meeting.splitLocation) ? Meeting.splitLocation(value).location : value;
+	if (osm.looksLikeAddress(address)) {
+		link.href = osm.searchUrl(address);
 		link.textContent = t('CALDAV/OPEN_IN_OPENSTREETMAP', 'Open in OpenStreetMap');
 		attr.href = osm.copyrightUrl;
 		attr.textContent = osm.attribution;
@@ -1268,6 +1277,36 @@ function updateLocationMap(value) {
 		box.hidden = true;
 		link.removeAttribute('href');
 		attr.removeAttribute('href');
+	}
+}
+
+// When the location carries a video-conferencing link, show it as a separate
+// "Join meeting" link under the field. The stored location value is left
+// untouched so nothing is lost when the event is saved again.
+function updateLocationMeeting(value) {
+	if (!dialogEl) {
+		return;
+	}
+	const box = dialogEl.querySelector('.mc-location-meeting');
+	if (!box) {
+		return;
+	}
+	const Meeting = window.MailbuxCalDavMeeting;
+	const link = box.querySelector('.mc-location-meeting-link');
+	if (!Meeting || !Meeting.meetingLinkFor || !link) {
+		box.hidden = true;
+		return;
+	}
+	const url = Meeting.meetingLinkFor(value);
+	if (url) {
+		link.href = url;
+		link.textContent = t('CALDAV/JOIN_MEETING', 'Join meeting');
+		link.title = url;
+		box.hidden = false;
+	} else {
+		box.hidden = true;
+		link.removeAttribute('href');
+		link.removeAttribute('title');
 	}
 }
 
@@ -1486,6 +1525,7 @@ function openEventForm(event, defaults) {
 
 	toggleFormAllDay(el);
 	updateLocationMap(el.location.value);
+	updateLocationMeeting(el.location.value);
 	el.root.hidden = false;
 	setTimeout(() => el.title.focus(), 20);
 }

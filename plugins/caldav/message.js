@@ -42,6 +42,10 @@ const OSM = window.MailbuxCalDavOsm || {};
 const OSM_ATTRIBUTION = OSM.attribution || '© OpenStreetMap contributors';
 const OSM_COPYRIGHT_URL = OSM.copyrightUrl || 'https://www.openstreetmap.org/copyright';
 
+// iCalendar TEXT decoding + meeting-link detection exposed by meeting.js
+// (loaded before this file). Falls back to safe defaults when it is missing.
+const Meeting = window.MailbuxCalDavMeeting || {};
+
 // OpenStreetMap search URL for an address-like location ('' otherwise).
 function osmLinkFor(location) {
 	return (OSM.looksLikeAddress && OSM.looksLikeAddress(location))
@@ -67,11 +71,17 @@ function unfoldIcs(text) {
 }
 
 function unescapeText(value) {
-	return ('' + value)
-		.replace(/\\n/gi, '\n')
-		.replace(/\\,/g, ',')
-		.replace(/\\;/g, ';')
-		.replace(/\\\\/g, '\\');
+	return Meeting.unescapeICalText
+		? Meeting.unescapeICalText(value)
+		: ('' + (value == null ? '' : value));
+}
+
+// Split a raw iCalendar LOCATION value into the plain address and the meeting
+// link it may carry (e.g. "Bautavej 9, 8210 Aarhus; https://meet.google.com/…").
+function splitLocation(value) {
+	return Meeting.splitLocation
+		? Meeting.splitLocation(value)
+		: {location: unescapeText(value), meetingUrl: ''};
 }
 
 // Parse the first VEVENT of an iCalendar string.
@@ -378,6 +388,13 @@ addEventListener('rl-view-model.create', e => {
 								</span>
 							</td>
 						</tr>
+						<tr data-bind="visible: CalDavInvite() && CalDavInvite().meetingUrl">
+							<td>${esc(t('MEETING', 'Meeting'))}:</td>
+							<td>
+								<a class="caldavInviteMeeting" target="_blank" rel="noopener noreferrer"
+									data-bind="attr: {href: CalDavInvite() && CalDavInvite().meetingUrl}, text: CalDavJoinMeetingLabel"></a>
+							</td>
+						</tr>
 						<tr data-bind="visible: CalDavInvite() && CalDavInvite().recurrence">
 							<td>${esc(t('REPEAT', 'Repeat'))}:</td>
 							<td data-bind="text: CalDavInvite() && CalDavInvite().recurrence"></td>
@@ -417,6 +434,7 @@ addEventListener('rl-view-model.create', e => {
 	view.CalDavAdded = ko.observable(false);
 	view.CalDavLocationUrl = ko.observable('');
 	view.CalDavOpenMapLabel = t('OPEN_IN_OPENSTREETMAP', 'Open in OpenStreetMap');
+	view.CalDavJoinMeetingLabel = t('JOIN_MEETING', 'Join meeting');
 	view.CalDavOsmCopyrightUrl = OSM_COPYRIGHT_URL;
 	view.CalDavOsmAttribution = OSM_ATTRIBUTION;
 	view.caldavAddText = ko.computed(() =>
@@ -573,7 +591,9 @@ addEventListener('rl-view-model.create', e => {
 				invite.uid = prop(invite, 'UID', '');
 				invite.summary = unescapeText(prop(invite, 'SUMMARY', t('UNTITLED', 'Untitled')));
 				invite.organizer = mailAddress(prop(invite, 'ORGANIZER', ''));
-				invite.location = unescapeText(prop(invite, 'LOCATION', ''));
+				const location = splitLocation(prop(invite, 'LOCATION', ''));
+				invite.location = location.location;
+				invite.meetingUrl = location.meetingUrl;
 				view.CalDavLocationUrl(osmLinkFor(invite.location));
 				const tzidStart = propTzid(invite, 'DTSTART');
 				const tzidEnd = propTzid(invite, 'DTEND') || tzidStart;

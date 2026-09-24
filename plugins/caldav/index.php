@@ -4,7 +4,7 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 {
 	const
 		NAME     = 'Mailbux CalDAV Auto',
-		VERSION  = '1.13',
+		VERSION  = '1.14',
 		RELEASE  = '2026-01-15',
 		CATEGORY = 'Calendar',
 		DESCRIPTION = 'Auto-configures CalDAV calendar sync with JMAP support - switches per account',
@@ -36,8 +36,10 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 		$this->addJsonHook('RemoveCalendarEvent', 'DoRemoveCalendarEvent');
 
 		// Add JavaScript
-		// openstreetmap.js must load first: it exposes window.MailbuxCalDavOsm
-		// used by both the calendar dialog and the invite box.
+		// meeting.js and openstreetmap.js must load first: they expose
+		// window.MailbuxCalDavMeeting / window.MailbuxCalDavOsm used by both the
+		// calendar dialog and the invite box.
+		$this->addJs('meeting.js');
 		$this->addJs('openstreetmap.js');
 		$this->addJs('calendar-dialog.js');
 		$this->addJs('message.js');
@@ -607,11 +609,11 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 				$sRecurrenceRaw = (string)($currentEvent['recurrence-id'] ?? '');
 				$events[] = [
 					'uid' => $currentEvent['uid'] ?? '',
-					'summary' => $currentEvent['summary'] ?? 'Untitled',
+					'summary' => $this->unescapeICSText((string) ($currentEvent['summary'] ?? 'Untitled')),
 					'dtstart' => $this->parseICalDate($currentEvent['dtstart'] ?? '', $currentEvent['dtstart_tzid'] ?? ''),
 					'dtend' => $this->parseICalDate($currentEvent['dtend'] ?? '', $currentEvent['dtend_tzid'] ?? ''),
-					'description' => $currentEvent['description'] ?? '',
-					'location' => $currentEvent['location'] ?? '',
+					'description' => $this->unescapeICSText((string) ($currentEvent['description'] ?? '')),
+					'location' => $this->unescapeICSText((string) ($currentEvent['location'] ?? '')),
 					'allDay' => !isset($currentEvent['dtstart']) || false === strpos((string)$currentEvent['dtstart'], 'T'),
 					'href' => $sHref,
 					'etag' => $sEtag,
@@ -1714,6 +1716,22 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 			["\\\\", "\\n", "\\n", "\\n", "\\,", "\\;"],
 			$sText
 		);
+	}
+
+	/**
+	 * Unescape an iCalendar TEXT value (inverse of escapeICSText, RFC 5545
+	 * 3.3.11). Uses strtr() so it is a single pass: a literal "\\" in the value
+	 * is not confused with the "\n" / "\," / "\;" escapes.
+	 */
+	private function unescapeICSText(string $sText) : string
+	{
+		return \strtr($sText, [
+			'\\n' => "\n",
+			'\\N' => "\n",
+			'\\,' => ',',
+			'\\;' => ';',
+			'\\\\' => '\\'
+		]);
 	}
 
 	/**

@@ -60,7 +60,9 @@ When a received mail contains a calendar invite (an `.ics` / `text/calendar` att
 - **Add to calendar** — asks for confirmation, lets you pick one of your calendars, and stores the event on your CalDAV server.
 - **Accept / Tentative / Decline** — sends a proper iTIP `METHOD:REPLY` response to the organizer from your account and, when the event was added, updates your participant status (PARTSTAT) on the stored event.
 
-Recurring invites are handled too: the invite box shows the recurrence pattern, and an invite that updates or cancels a **single occurrence** (`RECURRENCE-ID`) is applied to that occurrence only — the master series and any other overrides are preserved. Invites with `METHOD:CANCEL` show a **Remove from calendar** button instead, which deletes the whole event or just the cancelled occurrence.
+Recurring invites are handled too: the invite box shows the recurrence pattern, and an invite that updates or cancels a **single occurrence** (`RECURRENCE_ID`) is applied to that occurrence only — the master series and any other overrides are preserved. Invites with `METHOD:CANCEL` show a **Remove from calendar** button instead, which deletes the whole event or just the cancelled occurrence.
+
+The invite `LOCATION` is decoded properly (the iCalendar `\,` / `\;` / `\n` escapes) and, when it also contains a video-conferencing link (Google Meet, Zoom, Microsoft Teams, Webex, …), that link is pulled out of the address and offered as a separate clickable **Join meeting** link. The same meeting link is shown under the **Location** field when editing the stored event.
 
 ### 🕒 Timezones
 

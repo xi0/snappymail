@@ -20,6 +20,8 @@
 		"HOUR": "Time",
 		"MINUTE": "Minut",
 		"LOCATION": "Sted",
+		"MEETING": "Møde",
+		"JOIN_MEETING": "Deltag i møde",
 		"OPEN_IN_OPENSTREETMAP": "Åbn i OpenStreetMap",
 		"DESCRIPTION": "Beskrivelse",
 		"SAVE": "Gem",

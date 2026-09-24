@@ -20,6 +20,8 @@
 		"HOUR": "Hour",
 		"MINUTE": "Minute",
 		"LOCATION": "Location",
+		"MEETING": "Meeting",
+		"JOIN_MEETING": "Join meeting",
 		"OPEN_IN_OPENSTREETMAP": "Open in OpenStreetMap",
 		"DESCRIPTION": "Description",
 		"SAVE": "Save",
