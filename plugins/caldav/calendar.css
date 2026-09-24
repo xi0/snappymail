@@ -81,6 +81,26 @@
 	font-size: 90%;
 }
 
+/* OpenStreetMap link + attribution next to an address-like location */
+#messageItem .caldavInviteMap {
+	display: inline-block;
+	margin-left: 6px;
+	white-space: nowrap;
+}
+
+#messageItem .caldavInviteMapLink {
+	margin-right: 6px;
+}
+
+#messageItem .caldavInviteMapAttr {
+	font-size: 80%;
+	color: #6b7b86;
+}
+
+#messageItem .caldavInviteMapAttr:hover {
+	text-decoration: underline;
+}
+
 /* ==================================================================
    Calendar button + dialog (calendar-dialog.js)
    ================================================================== */
@@ -916,6 +936,28 @@ html.rl-left-panel-disabled #rl-left .buttonCompose {
 	font-weight: 600;
 }
 
+/* ---- Location -> OpenStreetMap link ---- */
+.mailbux-cal-dialog .mc-location-map {
+	align-items: baseline;
+	flex-wrap: wrap;
+	gap: 8px;
+	font-size: 12px;
+	margin-top: 2px;
+}
+
+.mailbux-cal-dialog .mc-location-map:not([hidden]) {
+	display: flex;
+}
+
+.mailbux-cal-dialog .mc-location-osm {
+	font-weight: 600;
+}
+
+.mailbux-cal-dialog .mc-location-osm-attr {
+	color: #8c8c8c;
+	font-size: 11px;
+}
+
 /* ---- Responsive & dark mode ---- */
 @media (max-width: 720px) {
 	.mailbux-cal-dialog .mc-window {
@@ -1091,6 +1133,9 @@ html.rl-left-panel-disabled #rl-left .buttonCompose {
 		background: #00639a;
 		color: #fff;
 	}
+	.mailbux-cal-dialog .mc-location-osm-attr {
+		color: #a8a8a8;
+	}
 }
 
 /* ---- Calendar invite dark mode ---- */
@@ -1109,5 +1154,8 @@ html.rl-left-panel-disabled #rl-left .buttonCompose {
 	}
 	#messageItem .caldavInviteError {
 		color: #ff9b95;
+	}
+	#messageItem .caldavInviteMapAttr {
+		color: #a8a8a8;
 	}
 }

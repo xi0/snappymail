@@ -36,6 +36,19 @@ function esc(value) {
 		.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
+// OpenStreetMap helper exposed by openstreetmap.js (loaded before this file).
+// Falls back to safe defaults so the invite box never throws if it is missing.
+const OSM = window.MailbuxCalDavOsm || {};
+const OSM_ATTRIBUTION = OSM.attribution || '© OpenStreetMap contributors';
+const OSM_COPYRIGHT_URL = OSM.copyrightUrl || 'https://www.openstreetmap.org/copyright';
+
+// OpenStreetMap search URL for an address-like location ('' otherwise).
+function osmLinkFor(location) {
+	return (OSM.looksLikeAddress && OSM.looksLikeAddress(location))
+		? OSM.searchUrl(location)
+		: '';
+}
+
 /* ------------------------------------------------ iCalendar parsing */
 
 // Unfold folded lines (RFC 5545 3.1) into logical lines.
@@ -355,7 +368,15 @@ addEventListener('rl-view-model.create', e => {
 						</tr>
 						<tr data-bind="visible: CalDavInvite() && CalDavInvite().location">
 							<td>${esc(t('LOCATION', 'Location'))}:</td>
-							<td data-bind="text: CalDavInvite() && CalDavInvite().location"></td>
+							<td>
+								<span class="caldavInviteLocation" data-bind="text: CalDavInvite() && CalDavInvite().location"></span>
+								<span class="caldavInviteMap" data-bind="visible: CalDavLocationUrl">
+									<a class="caldavInviteMapLink" target="_blank" rel="noopener noreferrer"
+										data-bind="attr: {href: CalDavLocationUrl}, text: CalDavOpenMapLabel"></a>
+									<a class="caldavInviteMapAttr" target="_blank" rel="noopener noreferrer"
+										data-bind="attr: {href: CalDavOsmCopyrightUrl}, text: CalDavOsmAttribution"></a>
+								</span>
+							</td>
 						</tr>
 						<tr data-bind="visible: CalDavInvite() && CalDavInvite().recurrence">
 							<td>${esc(t('REPEAT', 'Repeat'))}:</td>
@@ -394,6 +415,10 @@ addEventListener('rl-view-model.create', e => {
 	view.CalDavStatus = ko.observable('');
 	view.CalDavError = ko.observable('');
 	view.CalDavAdded = ko.observable(false);
+	view.CalDavLocationUrl = ko.observable('');
+	view.CalDavOpenMapLabel = t('OPEN_IN_OPENSTREETMAP', 'Open in OpenStreetMap');
+	view.CalDavOsmCopyrightUrl = OSM_COPYRIGHT_URL;
+	view.CalDavOsmAttribution = OSM_ATTRIBUTION;
 	view.caldavAddText = ko.computed(() =>
 		view.CalDavAdded() ? t('ADDED', 'Added to calendar') : t('ADD_TO_CALENDAR', 'Add to calendar'));
 
@@ -521,6 +546,7 @@ addEventListener('rl-view-model.create', e => {
 		view.CalDavStatus('');
 		view.CalDavError('');
 		view.CalDavAdded(false);
+		view.CalDavLocationUrl('');
 		view.CalDavCanAdd(true);
 		view.CalDavCanRespond(false);
 		view.CalDavCanRemove(false);
@@ -548,6 +574,7 @@ addEventListener('rl-view-model.create', e => {
 				invite.summary = unescapeText(prop(invite, 'SUMMARY', t('UNTITLED', 'Untitled')));
 				invite.organizer = mailAddress(prop(invite, 'ORGANIZER', ''));
 				invite.location = unescapeText(prop(invite, 'LOCATION', ''));
+				view.CalDavLocationUrl(osmLinkFor(invite.location));
 				const tzidStart = propTzid(invite, 'DTSTART');
 				const tzidEnd = propTzid(invite, 'DTEND') || tzidStart;
 				invite.start = formatIcsDate(prop(invite, 'DTSTART', ''), tzidStart);

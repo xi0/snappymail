@@ -4,7 +4,7 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 {
 	const
 		NAME     = 'Mailbux CalDAV Auto',
-		VERSION  = '1.12',
+		VERSION  = '1.13',
 		RELEASE  = '2026-01-15',
 		CATEGORY = 'Calendar',
 		DESCRIPTION = 'Auto-configures CalDAV calendar sync with JMAP support - switches per account',
@@ -36,6 +36,9 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 		$this->addJsonHook('RemoveCalendarEvent', 'DoRemoveCalendarEvent');
 
 		// Add JavaScript
+		// openstreetmap.js must load first: it exposes window.MailbuxCalDavOsm
+		// used by both the calendar dialog and the invite box.
+		$this->addJs('openstreetmap.js');
 		$this->addJs('calendar-dialog.js');
 		$this->addJs('message.js');
 

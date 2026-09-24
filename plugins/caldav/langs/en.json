@@ -20,6 +20,7 @@
 		"HOUR": "Hour",
 		"MINUTE": "Minute",
 		"LOCATION": "Location",
+		"OPEN_IN_OPENSTREETMAP": "Open in OpenStreetMap",
 		"DESCRIPTION": "Description",
 		"SAVE": "Save",
 		"DELETE": "Delete",

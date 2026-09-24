@@ -20,6 +20,7 @@
 		"HOUR": "Time",
 		"MINUTE": "Minut",
 		"LOCATION": "Sted",
+		"OPEN_IN_OPENSTREETMAP": "Åbn i OpenStreetMap",
 		"DESCRIPTION": "Beskrivelse",
 		"SAVE": "Gem",
 		"DELETE": "Slet",

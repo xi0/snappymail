@@ -885,10 +885,14 @@ function buildDialog() {
 								<div class="mc-dtp-host" data-cal-dtp="end"></div>
 							</div>
 						</div>
-						<label class="mc-field">
-							<span class="mc-field-label mc-lbl-location"></span>
-							<input type="text" name="location" maxlength="255">
-						</label>
+						<div class="mc-field">
+							<label class="mc-field-label mc-lbl-location" for="mc-location-input"></label>
+							<input type="text" name="location" id="mc-location-input" maxlength="255">
+							<div class="mc-location-map" hidden>
+								<a class="mc-location-osm" target="_blank" rel="noopener noreferrer"></a>
+								<a class="mc-location-osm-attr" target="_blank" rel="noopener noreferrer"></a>
+							</div>
+						</div>
 						<label class="mc-field">
 							<span class="mc-field-label mc-lbl-description"></span>
 							<textarea name="description" rows="3"></textarea>
@@ -982,6 +986,7 @@ function buildDialog() {
 	q('[name="repeat"]').addEventListener('change', () => toggleRepeatFields());
 	q('[name="repeatends"]').addEventListener('change', () => toggleRepeatFields());
 	q('[name="onlythis"]').addEventListener('change', () => applyOnlyThis());
+	q('[name="location"]').addEventListener('input', event => updateLocationMap(event.target.value));
 	q('[data-cal-delete]').addEventListener('click', deleteEventForm);
 
 	dialogEl.addEventListener('click', event => {
@@ -1235,6 +1240,37 @@ function eventFormEls() {
 	};
 }
 
+// When the location looks like an address, show an OpenStreetMap search link
+// (with the required OpenStreetMap attribution) underneath the field. Uses the
+// shared helper exposed by openstreetmap.js.
+function updateLocationMap(value) {
+	if (!dialogEl) {
+		return;
+	}
+	const box = dialogEl.querySelector('.mc-location-map');
+	if (!box) {
+		return;
+	}
+	const osm = window.MailbuxCalDavOsm;
+	const link = box.querySelector('.mc-location-osm');
+	const attr = box.querySelector('.mc-location-osm-attr');
+	if (!osm || !link || !attr) {
+		box.hidden = true;
+		return;
+	}
+	if (osm.looksLikeAddress(value)) {
+		link.href = osm.searchUrl(value);
+		link.textContent = t('CALDAV/OPEN_IN_OPENSTREETMAP', 'Open in OpenStreetMap');
+		attr.href = osm.copyrightUrl;
+		attr.textContent = osm.attribution;
+		box.hidden = false;
+	} else {
+		box.hidden = true;
+		link.removeAttribute('href');
+		attr.removeAttribute('href');
+	}
+}
+
 // Show/hide the interval/weekday/ends controls for the chosen frequency.
 function toggleRepeatFields() {
 	const el = eventFormEls();
@@ -1449,6 +1485,7 @@ function openEventForm(event, defaults) {
 	setRepeatForm(editingSeries ? editingSeries.rrule : '', el.start.getValue() || new Date());
 
 	toggleFormAllDay(el);
+	updateLocationMap(el.location.value);
 	el.root.hidden = false;
 	setTimeout(() => el.title.focus(), 20);
 }
