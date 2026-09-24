@@ -26,7 +26,6 @@
 	border-collapse: collapse;
 	margin: 8px 0;
 	font-size: 90%;
-	white-space: pre-wrap;
 }
 
 #messageItem .caldavInviteInfo td {
@@ -37,6 +36,12 @@
 #messageItem .caldavInviteInfo td:first-child {
 	color: #666;
 	white-space: nowrap;
+}
+
+/* Keep intentional line breaks in the location value (iCalendar "\n") without
+   rendering the whitespace of the surrounding markup as visible text. */
+#messageItem .caldavInviteLocation {
+	white-space: pre-wrap;
 }
 
 #messageItem .caldavInviteActions {
@@ -90,6 +95,7 @@
 
 #messageItem .caldavInviteMapLink {
 	margin-right: 6px;
+	color: #005a8c;
 }
 
 #messageItem .caldavInviteMapAttr {
@@ -104,6 +110,7 @@
 /* Meeting / video-conference link pulled out of the invite location */
 #messageItem .caldavInviteMeeting {
 	font-weight: 600;
+	color: #005a8c;
 }
 
 /* ==================================================================
@@ -1173,6 +1180,10 @@ html.rl-left-panel-disabled #rl-left .buttonCompose {
 	}
 	#messageItem .caldavInviteError {
 		color: #ff9b95;
+	}
+	#messageItem .caldavInviteMapLink,
+	#messageItem .caldavInviteMeeting {
+		color: #4fb3e8;
 	}
 	#messageItem .caldavInviteMapAttr {
 		color: #a8a8a8;
