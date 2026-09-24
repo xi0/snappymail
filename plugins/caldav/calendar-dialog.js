@@ -135,6 +135,52 @@ function esc(value) {
 		.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
+// Google Calendar/Google Meet appends an auto-generated conferencing block to
+// the event DESCRIPTION, delimited by two long lines built only from '-', ':'
+// and '~'. That section is not meant to be edited ("Please do not edit this
+// section"), so hide it from the description textarea while editing and append
+// the preserved block back on save - keeping Google interop intact.
+const GOOGLE_BLOCK_LINE = /^[-:~]{15,}$/;
+
+// The Google block currently held out of the description textarea ('' if none).
+let descriptionBlock = '';
+
+function isGoogleBlockLine(line) {
+	return GOOGLE_BLOCK_LINE.test((line || '').trim());
+}
+
+// Split a description into the editable text and the (possibly empty) Google
+// block, keeping both delimiter lines and the block's internal blank lines.
+function splitDescriptionBlock(description) {
+	const text = ('' + (description == null ? '' : description)).replace(/\r\n|\r/g, '\n');
+	const lines = text.split('\n');
+	const markers = [];
+	lines.forEach((line, index) => {
+		if (isGoogleBlockLine(line)) {
+			markers.push(index);
+		}
+	});
+	if (markers.length < 2) {
+		return {text: text.trim(), block: ''};
+	}
+	const start = markers[0];
+	const end = markers[markers.length - 1];
+	const block = lines.slice(start, end + 1).join('\n').trim();
+	const before = lines.slice(0, start).join('\n').replace(/\s+$/, '');
+	const after = lines.slice(end + 1).join('\n').replace(/^\s+/, '');
+	const visible = (before && after) ? before + '\n\n' + after : (before || after || '');
+	return {text: visible.replace(/\n{3,}/g, '\n\n').trim(), block: block};
+}
+
+// Re-attach a preserved Google block to the end of an edited description.
+function joinDescriptionBlock(text, block) {
+	const body = ('' + (text == null ? '' : text)).replace(/\s+$/, '');
+	if (!block) {
+		return body;
+	}
+	return body ? (body + '\n\n' + block) : block;
+}
+
 function startOfDay(date) {
 	return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
@@ -1486,7 +1532,9 @@ function openEventForm(event, defaults) {
 		fillCalendarOptions(el.calendar, event.calendarId);
 		el.title.value = event.title || '';
 		el.location.value = event.location || '';
-		el.description.value = event.description || '';
+		const description = splitDescriptionBlock(event.description);
+		el.description.value = description.text;
+		descriptionBlock = description.block;
 		el.allday.checked = !!event.allDay;
 		const start = event.start || new Date();
 		const end = eventEnd(event);
@@ -1513,6 +1561,7 @@ function openEventForm(event, defaults) {
 		el.title.value = '';
 		el.location.value = '';
 		el.description.value = '';
+		descriptionBlock = '';
 		el.allday.checked = allDay;
 		el.start.setValue(start);
 		// All-day end is inclusive in the UI, exclusive internally
@@ -1542,6 +1591,7 @@ function closeEventForm() {
 	untilPicker && untilPicker.close();
 	editingEvent = null;
 	editingSeries = null;
+	descriptionBlock = '';
 }
 
 async function saveEventForm(event) {
@@ -1595,7 +1645,7 @@ async function saveEventForm(event) {
 		Start: startParam,
 		End: endParam,
 		AllDay: allDay ? 1 : 0,
-		Description: el.description.value,
+		Description: joinDescriptionBlock(el.description.value, descriptionBlock),
 		Location: el.location.value
 	};
 

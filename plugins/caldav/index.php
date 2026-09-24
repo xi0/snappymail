@@ -4,8 +4,8 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 {
 	const
 		NAME     = 'Mailbux CalDAV Auto',
-		VERSION  = '1.15',
-		RELEASE  = '2026-01-15',
+		VERSION  = '1.16',
+		RELEASE  = '2026-01-16',
 		CATEGORY = 'Calendar',
 		DESCRIPTION = 'Auto-configures CalDAV calendar sync with JMAP support - switches per account',
 		REQUIRED = '2.0.0';
