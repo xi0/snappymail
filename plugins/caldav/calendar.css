@@ -692,6 +692,12 @@ html.rl-left-panel-disabled #rl-left .buttonCompose {
 	margin: 2px 0;
 }
 
+/* Same `[hidden]` vs `display: flex` conflict as the repeat controls: the
+   checkbox is toggled via `hidden`, but `.mc-check` would keep it visible. */
+.mailbux-cal-dialog .mc-only-this[hidden] {
+	display: none;
+}
+
 /* ---- Repeat (recurrence) controls ---- */
 .mailbux-cal-dialog .mc-repeat {
 	display: flex;
@@ -705,6 +711,17 @@ html.rl-left-panel-disabled #rl-left .buttonCompose {
 	gap: 8px;
 	padding-top: 8px;
 	border-top: 1px dashed #e0e0e0;
+}
+
+/* The repeat sub-controls are toggled with the `hidden` attribute, but the
+   `display` rules above would otherwise override it (author styles beat the
+   user-agent `[hidden] { display: none }`). Make `hidden` win so e.g. the
+   count field disappears when "Ends" is not set to count. */
+.mailbux-cal-dialog .mc-repeat-details[hidden],
+.mailbux-cal-dialog .mc-repeat-until[hidden],
+.mailbux-cal-dialog .mc-repeat-count[hidden],
+.mailbux-cal-dialog .mc-repeat-weekdays[hidden] {
+	display: none;
 }
 
 .mailbux-cal-dialog .mc-field-row .mc-repeat-interval {
