@@ -57,14 +57,6 @@
 	</div>
 
 	<div class="legend" data-i18n="SHORTCUTS_HELP/TAB_MESSAGE_LIST"></div>
-	<div class="control-group">
-		<label data-i18n="SETTINGS_GENERAL/MESSAGE_PER_PAGE"></label>
-		<div>
-			<input type="number" min="10" max="50" step="1" class="span1" data-bind="textInput: messagesPerPage">
-			&nbsp;
-			<span data-bind="saveTrigger: messagesPerPageTrigger"></span>
-		</div>
-	</div>
 	<div class="control-group" data-bind="visible: sortSupported">
 		<label data-i18n="MESSAGE_LIST/SORT"></label>
 		<select data-bind="options: sortOptions, optionsText: 'text', optionsValue: 'value', value: defaultSort"></select>

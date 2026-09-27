@@ -99,7 +99,7 @@ export class UserSettingsGeneral extends AbstractViewSettings {
 
 		['defaultSort', 'useThreads', 'threadAlgorithm',
 		 // These use addSetting()
-		 'layout', 'messageReadDelay', 'messagesPerPage', 'checkMailInterval',
+		 'layout', 'messageReadDelay', 'checkMailInterval',
 		 'editorDefaultType', 'editorWysiwyg', 'msgDefaultAction', 'maxBlockquotesLevel',
 		 // These are in addSettings()
 		 'requestReadReceipt', 'requestDsn', 'requireTLS', 'pgpSign', 'pgpEncrypt',
@@ -157,7 +157,6 @@ export class UserSettingsGeneral extends AbstractViewSettings {
 		this.addSetting('editorWysiwyg');
 		this.addSetting('MsgDefaultAction');
 		this.addSetting('MessageReadDelay');
-		this.addSetting('MessagesPerPage');
 		this.addSetting('CheckMailInterval');
 		this.addSetting('Layout');
 		this.addSetting('MaxBlockquotesLevel');
