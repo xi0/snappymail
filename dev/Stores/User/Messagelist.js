@@ -304,7 +304,9 @@ MessagelistUserStore.reload = (bDropPagePosition = false, bDropCurrentFolderCach
 						folderInfo.name +
 						'|' + collection.search +
 						'|' + MessagelistUserStore.threadUid() +
-						'|' + MessagelistUserStore.page()
+						'|' + MessagelistUserStore.page() +
+						// Force a change on every reload so the view re-checks for more messages
+						'|' + listGeneration
 					);
 					MessagelistUserStore.endThreadUid(collection.threadUid);
 					const message = MessageUserStore.message();
