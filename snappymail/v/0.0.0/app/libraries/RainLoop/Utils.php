@@ -132,7 +132,16 @@ class Utils
 
 	public static function WebStaticPath(string $path = '') : string
 	{
-		return self::WebVersionPath() . 'static/' . $path;
+		$sResult = self::WebVersionPath() . 'static/' . $path;
+		// Cache-busting: append the file modification time so browsers/proxies
+		// pick up a rebuilt asset instead of serving a stale cached copy.
+		if (\strlen($path)) {
+			$sFile = APP_VERSION_ROOT_PATH.'static/'.$path;
+			if (\is_file($sFile)) {
+				$sResult .= '?v=' . \filemtime($sFile);
+			}
+		}
+		return $sResult;
 	}
 
 	public static function inOpenBasedir(string $name) : string

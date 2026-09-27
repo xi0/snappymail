@@ -186,6 +186,11 @@
 		<!-- /ko -->
 
 		<div id="messagesDragImage"><span class="text"></span>&nbsp;<span class="fontastic">✉</span></div>
+
+		<div class="listLoadMore" data-bind="visible: messageList.loadingMore()">
+			<i class="icon-spinner"></i>
+			<span data-i18n="GLOBAL/LOADING"></span>
+		</div>
 	</div>
 	<div class="b-footer thm-message-list-bottom-toolbar">
 		<!-- ko if: userUsageProc() -->
@@ -193,6 +198,5 @@
 			<!-- ko text: userUsageProc --><!-- /ko -->%
 		</span>
 		<!-- /ko -->
-		<!-- ko template: { name: 'Paginator', data: messageListPaginator } --><!-- /ko -->
 	</div>
 </div>
