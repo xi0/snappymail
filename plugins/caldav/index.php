@@ -4,8 +4,8 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 {
 	const
 		NAME     = 'Mailbux CalDAV Auto',
-		VERSION  = '1.17',
-		RELEASE  = '2026-01-16',
+		VERSION  = '1.18',
+		RELEASE  = '2026-02-01',
 		CATEGORY = 'Calendar',
 		DESCRIPTION = 'Auto-configures CalDAV calendar sync with JMAP support - switches per account',
 		REQUIRED = '2.0.0';
@@ -34,6 +34,11 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 		$this->addJsonHook('ImportCalendarEvent', 'DoImportCalendarEvent');
 		$this->addJsonHook('RespondToEvent', 'DoRespondToEvent');
 		$this->addJsonHook('RemoveCalendarEvent', 'DoRemoveCalendarEvent');
+
+		// Participants (attendees), invitations and responses
+		$this->addJsonHook('GetContacts', 'DoGetContacts');
+		$this->addJsonHook('SendInvitations', 'DoSendInvitations');
+		$this->addJsonHook('ProcessEventReply', 'DoProcessEventReply');
 
 		// Add JavaScript
 		// meeting.js and openstreetmap.js must load first: they expose
@@ -607,6 +612,10 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 			}
 			if (0 === strcasecmp($line, 'END:VEVENT') && null !== $currentEvent) {
 				$sRecurrenceRaw = (string)($currentEvent['recurrence-id'] ?? '');
+				$aOrganizer = $this->parseOrganizerLine((string)($currentEvent['organizer_line'] ?? ''));
+				if ('' === $aOrganizer['email']) {
+					$aOrganizer['email'] = $this->inviteMailAddress((string)($currentEvent['organizer'] ?? ''));
+				}
 				$events[] = [
 					'uid' => $currentEvent['uid'] ?? '',
 					'summary' => $this->unescapeICSText((string) ($currentEvent['summary'] ?? 'Untitled')),
@@ -623,7 +632,9 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 					'recurrenceId' => '' === $sRecurrenceRaw ? '' : $this->parseICalDate($sRecurrenceRaw, $currentEvent['recurrence-id_tzid'] ?? ''),
 					'sequence' => (string)($currentEvent['sequence'] ?? '0'),
 					'status' => (string)($currentEvent['status'] ?? ''),
-					'organizer' => (string)($currentEvent['organizer'] ?? '')
+					'organizer' => $aOrganizer['email'],
+					'organizerName' => $aOrganizer['name'],
+					'attendees' => $this->parseAttendeeLines($currentEvent['attendee'] ?? [])
 				];
 				$currentEvent = null;
 				continue;
@@ -644,7 +655,17 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 				$sTzid = trim($tm[1], '"');
 			}
 
-			if (in_array($sKey, $aMulti, true)) {
+			if ('attendee' === $sKey) {
+				// Keep the full line (including its parameters) so the caller
+				// can read CN/PARTSTAT/ROLE/RSVP.
+				if (!isset($currentEvent['attendee']) || !is_array($currentEvent['attendee'])) {
+					$currentEvent['attendee'] = [];
+				}
+				$currentEvent['attendee'][] = $line;
+			} else if ('organizer' === $sKey) {
+				$currentEvent['organizer_line'] = $line;
+				$currentEvent['organizer'] = $sValue;
+			} else if (in_array($sKey, $aMulti, true)) {
 				if (!isset($currentEvent[$sKey]) || !is_array($currentEvent[$sKey])) {
 					$currentEvent[$sKey] = [];
 				}
@@ -861,6 +882,7 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 			$sRrule = \trim((string) $this->jsonParam('Rrule', ''));
 			$sExdate = (string) $this->jsonParam('Exdate', '');
 			$sRdate = (string) $this->jsonParam('Rdate', '');
+			$aAttendees = $this->readAttendeesParam();
 			
 			
 			if (empty($sTitle)) {
@@ -904,6 +926,14 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 			}
 			if (!empty($sLocation)) {
 				$sICS .= "LOCATION:" . $this->escapeICS($sLocation) . "\r\n";
+			}
+			if ($aAttendees) {
+				foreach ($this->buildAttendeeLines($aAttendees, [
+					'email' => $aConfig['User'],
+					'name' => $oAccount->Name() ?: ''
+				]) as $sAttendeeLine) {
+					$sICS .= $sAttendeeLine . "\r\n";
+				}
 			}
 			if ('' !== $sRrule) {
 				$sICS .= "RRULE:" . $sRrule . "\r\n";
@@ -969,6 +999,7 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 			$sRdate = (string) $this->jsonParam('Rdate', '');
 			$sMode = \strtolower(\trim((string) $this->jsonParam('Mode', '')));
 			$sRecurrenceId = \trim((string) $this->jsonParam('RecurrenceId', ''));
+			$aAttendees = $this->readAttendeesParam();
 			
 			if (!$sEventId || !$sTitle) {
 				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_EVENT_ID_TITLE_REQUIRED', [], 'Event ID and title required')]);
@@ -1000,7 +1031,12 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 				'location' => $sLocation,
 				'rrule' => $sRrule,
 				'exdate' => $sExdate,
-				'rdate' => $sRdate
+				'rdate' => $sRdate,
+				'attendees' => $aAttendees,
+				'organizer' => [
+					'email' => $aConfig['User'],
+					'name' => $oAccount->Name() ?: ''
+				]
 			];
 			
 			// Decrypt password using MAIN account's CryptKey
@@ -1171,6 +1207,11 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 		if ('' !== \trim((string) $aFields['location'])) {
 			$aOut[] = 'LOCATION:' . $this->escapeICSText((string) $aFields['location']);
 		}
+		if (!empty($aFields['attendees'])) {
+			foreach ($this->buildAttendeeLines($aFields['attendees'], $aFields['organizer'] ?? []) as $sLine) {
+				$aOut[] = $sLine;
+			}
+		}
 		if (isset($aFields['rrule']) && '' !== \trim((string) $aFields['rrule'])) {
 			$aOut[] = 'RRULE:' . \trim((string) $aFields['rrule']);
 		}
@@ -1250,7 +1291,7 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 	{
 		$aLines = $this->unfoldIcs($sIcs);
 		$iCount = \count($aLines);
-		$aManaged = ['DTSTART', 'DTEND', 'SUMMARY', 'DESCRIPTION', 'LOCATION', 'RRULE', 'EXDATE'];
+		$aManaged = ['DTSTART', 'DTEND', 'SUMMARY', 'DESCRIPTION', 'LOCATION', 'RRULE', 'EXDATE', 'ATTENDEE', 'ORGANIZER'];
 		$aOut = [];
 		$bMasterDone = false;
 
@@ -1877,6 +1918,419 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 		return \implode("\r\n", $aOut) . "\r\n";
 	}
 
+	/* ------------------------------------------------------------------
+	   Participants (attendees), invitations and responses
+	   ------------------------------------------------------------------ */
+
+	/**
+	 * Parse raw ATTENDEE lines (with their parameters) into structured data.
+	 *
+	 * @param string[] $aLines
+	 * @return array<int, array{email:string, name:string, partstat:string, role:string, rsvp:bool, cutype:string}>
+	 */
+	private function parseAttendeeLines(array $aLines) : array
+	{
+		$aResult = [];
+		foreach ($aLines as $sLine) {
+			$iPos = \strpos($sLine, ':');
+			if (false === $iPos) {
+				continue;
+			}
+			$sHead = \substr($sLine, 0, $iPos);
+			$sValue = \substr($sLine, $iPos + 1);
+			$aParts = \explode(';', $sHead);
+			\array_shift($aParts);
+			$aParams = [];
+			foreach ($aParts as $sParam) {
+				$aPair = \explode('=', $sParam, 2);
+				if (2 === \count($aPair)) {
+					$aParams[\strtoupper(\trim($aPair[0]))] = \trim($aPair[1], '"');
+				}
+			}
+			$sEmail = $this->inviteMailAddress($sValue);
+			if ('' === $sEmail) {
+				continue;
+			}
+			$aResult[] = [
+				'email' => $sEmail,
+				'name' => isset($aParams['CN']) ? $aParams['CN'] : '',
+				'partstat' => isset($aParams['PARTSTAT']) ? \strtoupper($aParams['PARTSTAT']) : 'NEEDS-ACTION',
+				'role' => isset($aParams['ROLE']) ? \strtoupper($aParams['ROLE']) : 'REQ-PARTICIPANT',
+				'rsvp' => empty($aParams['RSVP']) || 0 !== \strcasecmp($aParams['RSVP'], 'FALSE'),
+				'cutype' => isset($aParams['CUTYPE']) ? $aParams['CUTYPE'] : 'INDIVIDUAL'
+			];
+		}
+		return $aResult;
+	}
+
+	/**
+	 * Parse a raw ORGANIZER line into email + display name.
+	 *
+	 * @return array{email:string, name:string}
+	 */
+	private function parseOrganizerLine(string $sLine) : array
+	{
+		$iPos = \strpos($sLine, ':');
+		if (false === $iPos) {
+			return ['email' => '', 'name' => ''];
+		}
+		$sHead = \substr($sLine, 0, $iPos);
+		$sValue = \substr($sLine, $iPos + 1);
+		$sName = '';
+		if (\preg_match('/;CN=([^;:]+)/i', $sHead, $m)) {
+			$sName = \trim($m[1], '"');
+		}
+		return ['email' => $this->inviteMailAddress($sValue), 'name' => $sName];
+	}
+
+	/**
+	 * Turn a free-form participant ("Name <email>" or "email") into an array.
+	 *
+	 * @return array{email:string, name:string}
+	 */
+	private function parseAttendeeInput(string $sInput) : array
+	{
+		$sInput = \trim($sInput);
+		$sName = '';
+		$sEmail = $sInput;
+		if (\preg_match('/^(.*)<([^>]+)>\s*$/u', $sInput, $m)) {
+			$sName = \trim($m[1], " \t\"'");
+			$sEmail = \trim($m[2]);
+		}
+		if (0 === \stripos($sEmail, 'mailto:')) {
+			$sEmail = \substr($sEmail, 7);
+		}
+		return ['email' => \trim($sEmail, " \t<>\"'"), 'name' => $sName];
+	}
+
+	/**
+	 * Escape/quote an iCalendar parameter value (e.g. a CN).
+	 */
+	private function escapeICSParamValue(string $sValue) : string
+	{
+		$sValue = \str_replace(['\\', '"', "\r", "\n"], ['\\\\', '\\"', ' ', ' '], $sValue);
+		return '"' . $sValue . '"';
+	}
+
+	/**
+	 * Build ORGANIZER + ATTENDEE lines for a set of participants.
+	 *
+	 * @param array $aAttendees  list of {email, name, partstat} (or plain strings)
+	 * @param array $aOrganizer  {email, name}
+	 * @return string[]
+	 */
+	private function buildAttendeeLines(array $aAttendees, array $aOrganizer) : array
+	{
+		$aOut = [];
+		$sOrgEmail = \trim((string) ($aOrganizer['email'] ?? ''));
+		$sOrgName = \trim((string) ($aOrganizer['name'] ?? ''));
+		if ('' !== $sOrgEmail) {
+			$sHead = 'ORGANIZER';
+			if ('' !== $sOrgName) {
+				$sHead .= ';CN=' . $this->escapeICSParamValue($sOrgName);
+			}
+			$aOut[] = $sHead . ':mailto:' . $sOrgEmail;
+		}
+
+		$aSeen = [];
+		foreach ($aAttendees as $mAttendee) {
+			$aAttendee = \is_array($mAttendee) ? $mAttendee : $this->parseAttendeeInput((string) $mAttendee);
+			$sEmail = \trim((string) ($aAttendee['email'] ?? ''));
+			if ('' === $sEmail || 0 === \strcasecmp($sEmail, $sOrgEmail)) {
+				continue;
+			}
+			$sLower = \strtolower($sEmail);
+			if (isset($aSeen[$sLower])) {
+				continue;
+			}
+			$aSeen[$sLower] = true;
+
+			$sName = \trim((string) ($aAttendee['name'] ?? ''));
+			$sPartstat = \strtoupper(\trim((string) ($aAttendee['partstat'] ?? '')));
+			if (!\in_array($sPartstat, ['NEEDS-ACTION', 'ACCEPTED', 'DECLINED', 'TENTATIVE', 'DELEGATED'], true)) {
+				$sPartstat = 'NEEDS-ACTION';
+			}
+			$sHead = 'ATTENDEE;CUTYPE=INDIVIDUAL;ROLE=REQ-PARTICIPANT;PARTSTAT=' . $sPartstat . ';RSVP=TRUE';
+			if ('' !== $sName) {
+				$sHead .= ';CN=' . $this->escapeICSParamValue($sName);
+			}
+			$aOut[] = $sHead . ':mailto:' . $sEmail;
+		}
+		return $aOut;
+	}
+
+	/**
+	 * Read the client supplied "Attendees" parameter.
+	 *
+	 * @return array<int, array{email:string, name:string, partstat:string}>
+	 */
+	private function readAttendeesParam() : array
+	{
+		$mAttendees = $this->jsonParam('Attendees', []);
+		if (\is_string($mAttendees) && '' !== \trim($mAttendees)) {
+			$aDecoded = \json_decode($mAttendees, true);
+			$mAttendees = \is_array($aDecoded) ? $aDecoded : [];
+		}
+		if (!\is_array($mAttendees)) {
+			return [];
+		}
+		$aResult = [];
+		foreach ($mAttendees as $mItem) {
+			if (\is_string($mItem)) {
+				$a = $this->parseAttendeeInput($mItem);
+			} else if (\is_array($mItem)) {
+				$a = [
+					'email' => (string) ($mItem['email'] ?? ''),
+					'name' => (string) ($mItem['name'] ?? ''),
+					'partstat' => (string) ($mItem['partstat'] ?? '')
+				];
+			} else {
+				continue;
+			}
+			if ('' !== \trim($a['email'])) {
+				$aResult[] = $a;
+			}
+		}
+		return $aResult;
+	}
+
+	/**
+	 * Extract the ATTENDEE entries from a parsed invite.
+	 *
+	 * @return array<int, array{email:string, name:string, partstat:string}>
+	 */
+	private function inviteAttendees(array $aInvite) : array
+	{
+		$aOut = [];
+		foreach ($aInvite['properties']['ATTENDEE'] ?? [] as $aProp) {
+			$sEmail = $this->inviteMailAddress((string) ($aProp['value'] ?? ''));
+			if ('' !== $sEmail) {
+				$aOut[] = [
+					'email' => $sEmail,
+					'name' => isset($aProp['params']['CN']) ? (string) $aProp['params']['CN'] : '',
+					'partstat' => isset($aProp['params']['PARTSTAT']) ? \strtoupper((string) $aProp['params']['PARTSTAT']) : 'NEEDS-ACTION'
+				];
+			}
+		}
+		return $aOut;
+	}
+
+	/**
+	 * Return an iCalendar text with a METHOD property inserted (and any
+	 * pre-existing METHOD removed), used to build iTIP transport messages.
+	 */
+	private function buildMethodIcs(string $sIcs, string $sMethod) : string
+	{
+		$aOut = [];
+		$bInserted = false;
+		foreach ($this->unfoldIcs($sIcs) as $sLine) {
+			$sTrim = \trim($sLine);
+			if ('' === $sTrim || 0 === \stripos($sTrim, 'METHOD:')) {
+				continue;
+			}
+			$aOut[] = $sTrim;
+			if (!$bInserted && 0 === \strcasecmp($sTrim, 'BEGIN:VCALENDAR')) {
+				$aOut[] = 'METHOD:' . \strtoupper($sMethod);
+				$bInserted = true;
+			}
+		}
+		return \implode("\r\n", $aOut) . "\r\n";
+	}
+
+	/**
+	 * Return the address book contacts (name + email) for the participant
+	 * picker. Degrades gracefully to an empty list when contacts are disabled.
+	 */
+	public function DoGetContacts() : array
+	{
+		try {
+			$oAccount = $this->Manager()->Actions()->getAccountFromToken();
+			if (!$oAccount) {
+				return $this->jsonResponse(__FUNCTION__, ['contacts' => [], 'error' => $this->msg('ERROR_NOT_LOGGED_IN', [], 'Please log in first')]);
+			}
+
+			$sSearch = \trim((string) $this->jsonParam('Search', ''));
+			$iLimit = (int) $this->jsonParam('Limit', 50);
+			$iLimit = \max(10, \min(200, $iLimit));
+
+			$aResult = [];
+			$oAbp = $this->Manager()->Actions()->AddressBookProvider($oAccount);
+			if ($oAbp && $oAbp->IsActive()) {
+				$iCount = 0;
+				foreach ($oAbp->GetContacts(0, $iLimit, $sSearch, $iCount) as $oContact) {
+					$oVCard = $oContact ? $oContact->vCard : null;
+					if (!$oVCard) {
+						continue;
+					}
+					$sName = \trim((string) $oVCard->FN);
+					if ('' === $sName && $oVCard->N) {
+						$aN = $oVCard->N->getParts();
+						$sName = \trim(\implode(' ', \array_filter([$aN[1] ?? '', $aN[0] ?? ''])));
+					}
+					foreach (($oVCard->EMAIL ?: []) as $oEmail) {
+						$sEmail = \trim((string) $oEmail->getValue());
+						if ('' !== $sEmail) {
+							$aResult[] = ['email' => $sEmail, 'name' => $sName];
+						}
+					}
+				}
+			}
+
+			return $this->jsonResponse(__FUNCTION__, ['contacts' => $aResult]);
+		} catch (\Exception $e) {
+			return $this->jsonResponse(__FUNCTION__, ['contacts' => [], 'error' => $e->getMessage()]);
+		}
+	}
+
+	/**
+	 * E-mail an iTIP METHOD:REQUEST invitation to every participant of a stored
+	 * event. The invitation body is the current server copy of the event so it
+	 * always matches what is on the calendar.
+	 */
+	public function DoSendInvitations() : array
+	{
+		try {
+			$oAccount = $this->Manager()->Actions()->getAccountFromToken();
+			if (!$oAccount) {
+				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_NOT_LOGGED_IN', [], 'Not logged in')]);
+			}
+
+			$aConfig = $this->getCalendarConfig($oAccount);
+			if (!$aConfig) {
+				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_NOT_CONFIGURED', [], 'Calendar not configured')]);
+			}
+
+			$sPassword = $this->getDecryptedPassword($aConfig);
+			if (null === $sPassword) {
+				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_NO_ENCRYPTION_KEY', [], 'Cannot access encryption key')]);
+			}
+
+			$sEventId = \trim((string) $this->jsonParam('EventId', ''));
+			$sCalendarId = (string) $this->jsonParam('CalendarId', 'default');
+			$sEventUrlParam = (string) $this->jsonParam('EventUrl', '');
+
+			if ('' === $sEventId) {
+				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_EVENT_ID_REQUIRED', [], 'Event ID required')]);
+			}
+
+			$sEventUrl = $this->resolveEventUrl($aConfig, $sEventUrlParam);
+			if ('' === $sEventUrl) {
+				$sEventUrl = $this->calendarUrl($aConfig, $sCalendarId) . '/' . \rawurlencode($sEventId) . '.ics';
+			}
+
+			$result = $this->makeCalDAVRequest($sEventUrl, 'GET', $aConfig['User'], $sPassword);
+			if (200 !== $result['code'] || empty($result['body'])) {
+				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_CALDAV', ['CODE' => $result['code']], 'CalDAV error: ' . $result['code'])]);
+			}
+
+			$sIcs = (string) $result['body'];
+			$aInvite = $this->parseInvite($sIcs);
+			$sUid = $this->inviteProp($aInvite, 'UID', $sEventId);
+			$sSummary = $this->unescapeICSText($this->inviteProp($aInvite, 'SUMMARY', ''));
+			$aAttendees = $this->inviteAttendees($aInvite);
+
+			// Only notify real participants (not the organizer themselves)
+			$sOrganizerEmail = \strtolower(\trim($aConfig['User']));
+			$aAttendees = \array_values(\array_filter($aAttendees, function ($a) use ($sOrganizerEmail) {
+				return \strtolower($a['email']) !== $sOrganizerEmail;
+			}));
+
+			if (!$aAttendees) {
+				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_NO_ATTENDEES', [], 'No participants to invite')]);
+			}
+
+			$sRequestIcs = $this->buildMethodIcs($sIcs, 'REQUEST');
+			$sFrom = $oAccount->Email();
+			$sFromName = $oAccount->Name() ?: $sFrom;
+			$sSubject = $this->msg('INVITATION_SUBJECT', ['SUMMARY' => $sSummary ?: $this->msg('CALENDAR', [], 'Calendar')], 'Invitation: ' . ($sSummary ?: 'Calendar'));
+			$sBody = \sprintf(
+				'%s: %s',
+				$sFromName,
+				$this->msg('INVITATION_BODY', ['SUMMARY' => $sSummary ?: $this->msg('CALENDAR', [], 'Calendar')], 'You are invited to "' . ($sSummary ?: 'Calendar') . '".')
+			);
+
+			$iSent = 0;
+			$aErrors = [];
+			foreach ($aAttendees as $aAttendee) {
+				try {
+					$this->sendCalendarMail($oAccount, $aAttendee['email'], $sFrom, $sFromName,
+						$sSubject, $sBody, 'REQUEST', $sRequestIcs, 'invite.ics');
+					++$iSent;
+				} catch (\Throwable $e) {
+					$aErrors[] = $aAttendee['email'] . ': ' . $e->getMessage();
+				}
+			}
+
+			if (0 === $iSent) {
+				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_SEND_INVITATIONS', [], 'Failed to send invitations') . (($aErrors) ? ' (' . \implode('; ', $aErrors) . ')' : '')]);
+			}
+
+			return $this->jsonResponse(__FUNCTION__, [
+				'success' => true,
+				'sent' => $iSent,
+				'total' => \count($aAttendees),
+				'uid' => $sUid
+			]);
+
+		} catch (\Exception $e) {
+			return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $e->getMessage()]);
+		}
+	}
+
+	/**
+	 * Register a participant's iTIP METHOD:REPLY by updating the PARTSTAT of
+	 * the matching attendee on the stored event.
+	 */
+	public function DoProcessEventReply() : array
+	{
+		try {
+			$oAccount = $this->Manager()->Actions()->getAccountFromToken();
+			if (!$oAccount) {
+				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_NOT_LOGGED_IN', [], 'Not logged in')]);
+			}
+
+			$aConfig = $this->getCalendarConfig($oAccount);
+			if (!$aConfig) {
+				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_NOT_CONFIGURED', [], 'Calendar not configured')]);
+			}
+
+			$sIcs = (string) $this->jsonParam('Ics', '');
+			if ('' === \trim($sIcs) || false === \stripos($sIcs, 'BEGIN:VEVENT')) {
+				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_ICS_INVALID', [], 'Invalid calendar invite')]);
+			}
+
+			$aInvite = $this->parseInvite($sIcs);
+			$sUid = $this->inviteProp($aInvite, 'UID');
+			if ('' === $sUid) {
+				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_EVENT_ID_REQUIRED', [], 'Event ID required')]);
+			}
+
+			$aAttendees = $this->inviteAttendees($aInvite);
+			if (!$aAttendees) {
+				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_NO_ATTENDEE', [], 'No participant in the response')]);
+			}
+			$aAttendee = $aAttendees[0];
+
+			$sCalendarId = (string) $this->jsonParam('CalendarId', 'default');
+			$sRecurrenceId = \trim((string) $this->jsonParam('RecurrenceId', $this->inviteProp($aInvite, 'RECURRENCE-ID')));
+
+			$bUpdated = $this->updateEventPartstat($oAccount, $sCalendarId, $sUid, $aAttendee['email'], $aAttendee['partstat'], $sRecurrenceId);
+
+			if (!$bUpdated) {
+				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_NO_EVENT_TO_REMOVE', [], 'No matching event found in your calendar')]);
+			}
+
+			return $this->jsonResponse(__FUNCTION__, [
+				'success' => true,
+				'attendee' => $aAttendee['email'],
+				'partstat' => $aAttendee['partstat']
+			]);
+
+		} catch (\Exception $e) {
+			return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $e->getMessage()]);
+		}
+	}
+
 	/**
 	 * Build an iTIP METHOD:REPLY calendar object for the current user.
 	 */
@@ -2136,11 +2590,26 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 			($sSummary ? ': ' . $sSummary : '')
 		);
 
+		$this->sendCalendarMail($oAccount, $sTo, $sFrom, $sDisplayName,
+			$sSubject, $sBody, 'REPLY', $sReplyIcs, 'reply.ics');
+	}
+
+	/**
+	 * Send a calendar message (iTIP REQUEST/REPLY) as a multipart e-mail via
+	 * the account's SMTP settings.
+	 */
+	private function sendCalendarMail(\RainLoop\Model\Account $oAccount, string $sTo, string $sFrom,
+		string $sFromName, string $sSubject, string $sBody, string $sMethod, string $sIcs,
+		string $sFileName = 'invite.ics') : void
+	{
+		$sMethod = \strtoupper($sMethod);
+		$sFileName = \str_replace(['"', "\r", "\n"], '', $sFileName);
+
 		$sBoundary = 'mailbux-caldav-' . \MailSo\Base\Utils::Sha1Rand('boundary');
 		$sEol = "\r\n";
 
 		$aHeaders = [
-			'From: ' . \MailSo\Base\Utils::EncodeHeaderValue($sDisplayName) . ' <' . $sFrom . '>',
+			'From: ' . \MailSo\Base\Utils::EncodeHeaderValue($sFromName ?: $sFrom) . ' <' . $sFrom . '>',
 			'To: <' . $sTo . '>',
 			'Subject: ' . \MailSo\Base\Utils::EncodeHeaderValue($sSubject),
 			'Date: ' . \gmdate('r'),
@@ -2155,10 +2624,10 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 		$sRaw .= 'Content-Transfer-Encoding: 8bit' . $sEol . $sEol;
 		$sRaw .= \preg_replace('/\r?\n/', $sEol, \trim($sBody)) . $sEol;
 		$sRaw .= '--' . $sBoundary . $sEol;
-		$sRaw .= 'Content-Type: text/calendar; charset="utf-8"; method=REPLY; name="invite.ics"' . $sEol;
-		$sRaw .= 'Content-Disposition: attachment; filename="invite.ics"' . $sEol;
+		$sRaw .= 'Content-Type: text/calendar; charset="utf-8"; method=' . $sMethod . '; name="' . $sFileName . '"' . $sEol;
+		$sRaw .= 'Content-Disposition: attachment; filename="' . $sFileName . '"' . $sEol;
 		$sRaw .= 'Content-Transfer-Encoding: base64' . $sEol . $sEol;
-		$sRaw .= \chunk_split(\base64_encode($sReplyIcs), 76, $sEol);
+		$sRaw .= \chunk_split(\base64_encode($sIcs), 76, $sEol);
 		$sRaw .= '--' . $sBoundary . '--' . $sEol;
 
 		$oActions = $this->Manager()->Actions();
@@ -2178,7 +2647,7 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 				? \mail($sTo, $sSubject, $sRawBody, $sRawHeaders, '-f' . $sFrom)
 				: false;
 			if (!$bSent) {
-				throw new \RuntimeException('Failed to send the calendar reply');
+				throw new \RuntimeException('Failed to send the calendar message');
 			}
 			return;
 		}
@@ -2193,27 +2662,27 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 	 * Best-effort update of the local attendee PARTSTAT on a stored event.
 	 */
 	private function updateEventPartstat(\RainLoop\Model\Account $oAccount, string $sCalendarId,
-		string $sUid, string $sEmail, string $sPartstat, string $sRecurrenceId = '') : void
+		string $sUid, string $sEmail, string $sPartstat, string $sRecurrenceId = '') : bool
 	{
 		try {
 			$aConfig = $this->getCalendarConfig($oAccount);
 			if (!$aConfig) {
-				return;
+				return false;
 			}
 			$sPassword = $this->getDecryptedPassword($aConfig);
 			if (null === $sPassword) {
-				return;
+				return false;
 			}
 
 			$sEventUrl = $this->calendarUrl($aConfig, $sCalendarId) . '/' . \rawurlencode($sUid) . '.ics';
 			$result = $this->makeCalDAVRequest($sEventUrl, 'GET', $aConfig['User'], $sPassword);
 			if (200 !== $result['code'] || empty($result['body'])) {
-				return;
+				return false;
 			}
 
 			$sIcs = (string) $result['body'];
 			if (false === \stripos($sIcs, 'BEGIN:VEVENT')) {
-				return;
+				return false;
 			}
 
 			// When a RECURRENCE-ID is given only that override is updated,
@@ -2271,10 +2740,10 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 			}
 
 			if (!$bUpdated) {
-				return;
+				return false;
 			}
 
-			$this->makeCalDAVRequest(
+			$putResult = $this->makeCalDAVRequest(
 				$sEventUrl,
 				'PUT',
 				$aConfig['User'],
@@ -2282,8 +2751,10 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 				\implode("\r\n", $aOut) . "\r\n",
 				['Content-Type: text/calendar; charset=utf-8']
 			);
+			return \in_array($putResult['code'], [200, 201, 204], true);
 		} catch (\Exception $e) {
 			// Best-effort only - the reply e-mail is the important part
+			return false;
 		}
 	}
 }

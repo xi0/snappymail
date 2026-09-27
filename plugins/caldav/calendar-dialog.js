@@ -88,6 +88,10 @@ let endPicker = null;
 let untilPicker = null;
 // The series currently being edited (an event on its own, or the master of an occurrence)
 let editingSeries = null;
+// Participants (attendees) currently being edited in the event form
+let participants = [];
+// Timer for the debounced address-book search backing the participant picker
+let contactsSearchTimer = null;
 
 /* ------------------------------------------------------------------ utils */
 
@@ -883,6 +887,21 @@ function buildDialog() {
 							<span class="mc-field-label mc-lbl-calendar"></span>
 							<select name="calendar"></select>
 						</label>
+						<div class="mc-field mc-participants-field">
+							<span class="mc-field-label mc-lbl-participants"></span>
+							<div class="mc-participants">
+								<div class="mc-participant-list"></div>
+								<div class="mc-participant-add">
+									<input type="text" class="mc-participant-input" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+									<button type="button" class="mc-participant-pick" data-cal-participant-pick>👥</button>
+								</div>
+								<div class="mc-participant-suggest" hidden></div>
+							</div>
+						</div>
+						<label class="mc-check mc-notify-participants" hidden>
+							<input type="checkbox" name="notifyparticipants">
+							<span class="mc-lbl-notify-participants"></span>
+						</label>
 						<label class="mc-check mc-only-this" hidden>
 							<input type="checkbox" name="onlythis">
 							<span class="mc-lbl-onlythis"></span>
@@ -977,6 +996,11 @@ function buildDialog() {
 	// Event form labels / buttons
 	q('.mc-lbl-title').textContent = t('CALDAV/TITLE', 'Title');
 	q('.mc-lbl-calendar').textContent = t('CALDAV/CALENDAR', 'Calendar');
+	q('.mc-lbl-participants').textContent = t('CALDAV/PARTICIPANTS', 'Participants');
+	q('.mc-lbl-notify-participants').textContent = t('CALDAV/NOTIFY_PARTICIPANTS', 'E-mail invitations to participants');
+	q('.mc-participant-input').placeholder = t('CALDAV/ADD_PARTICIPANT', 'Add participant…');
+	q('[data-cal-participant-pick]').title = t('CALDAV/PICK_FROM_CONTACTS', 'Pick from contacts');
+	q('[data-cal-participant-pick]').setAttribute('aria-label', t('CALDAV/PICK_FROM_CONTACTS', 'Pick from contacts'));
 	q('.mc-lbl-allday').textContent = t('CALDAV/ALL_DAY', 'All day');
 	q('.mc-lbl-start').textContent = t('CALDAV/START', 'Start');
 	q('.mc-lbl-end').textContent = t('CALDAV/END', 'End');
@@ -1029,6 +1053,73 @@ function buildDialog() {
 	q('[data-cal-dtp="start"]').appendChild(startPicker.element);
 	q('[data-cal-dtp="end"]').appendChild(endPicker.element);
 	q('[data-cal-dtp="until"]').appendChild(untilPicker.element);
+
+	// Participant (attendee) field: type an e-mail, pick from contacts or
+	// remove a chip. The address-book results are fetched on demand.
+	const participantInput = q('.mc-participant-input');
+	const participantSuggest = q('.mc-participant-suggest');
+	participantInput.addEventListener('input', () => scheduleContactSearch(participantInput.value.trim()));
+	participantInput.addEventListener('focus', () => {
+		const value = participantInput.value.trim();
+		if (value) {
+			scheduleContactSearch(value);
+		}
+	});
+	participantInput.addEventListener('keydown', event => {
+		if ('Enter' === event.key || ',' === event.key || ';' === event.key) {
+			if (participantInput.value.trim()) {
+				event.preventDefault();
+				addParticipant(participantInput.value.trim());
+				participantInput.value = '';
+			}
+			hideContactSuggestions();
+		} else if ('Backspace' === event.key && !participantInput.value && participants.length) {
+			removeParticipant(participants[participants.length - 1].email);
+		} else if ('Escape' === event.key) {
+			hideContactSuggestions();
+		}
+	});
+	participantInput.addEventListener('blur', () => setTimeout(() => {
+		const value = participantInput.value.trim();
+		if (value && value.indexOf('@') !== -1) {
+			addParticipant(value);
+			participantInput.value = '';
+		}
+		hideContactSuggestions();
+	}, 200));
+	q('[data-cal-participant-pick]').addEventListener('click', () => {
+		if (!participantSuggest.hidden) {
+			hideContactSuggestions();
+			return;
+		}
+		fetchContacts(participantInput.value.trim()).then(list => {
+			if (!list.length) {
+				participantSuggest.innerHTML = '<div class="mc-participant-suggest-empty">'
+					+ esc(t('CALDAV/NO_CONTACTS', 'No contacts found')) + '</div>';
+				participantSuggest.hidden = false;
+			} else {
+				renderContactSuggestions(list);
+			}
+		});
+		participantInput.focus();
+	});
+	participantSuggest.addEventListener('click', event => {
+		const item = event.target.closest('[data-contact-email]');
+		if (!item) {
+			return;
+		}
+		addParticipant({email: item.dataset.contactEmail, name: item.dataset.contactName});
+		hideContactSuggestions();
+		participantInput.value = '';
+		participantInput.focus();
+	});
+	q('.mc-participant-list').addEventListener('click', event => {
+		const btn = event.target.closest('[data-participant-remove]');
+		if (btn) {
+			event.preventDefault();
+			removeParticipant(btn.dataset.participantRemove);
+		}
+	});
 
 	q('.mc-form-window').addEventListener('submit', saveEventForm);
 	q('[name="allday"]').addEventListener('change', () => toggleFormAllDay(eventFormEls()));
@@ -1165,8 +1256,10 @@ function closeDialog() {
 	startPicker && startPicker.close();
 	endPicker && endPicker.close();
 	untilPicker && untilPicker.close();
+	hideContactSuggestions();
 	editingEvent = null;
 	editingSeries = null;
+	participants = [];
 	document.removeEventListener('keydown', onKeydown, true);
 }
 
@@ -1254,9 +1347,163 @@ function normalizeEvent(raw, calendar) {
 		rrule: raw.rrule || '',
 		rdate: raw.rdate || [],
 		exdate: raw.exdate || [],
+		attendees: raw.attendees || [],
+		organizer: raw.organizer || '',
 		recurrenceId: parseDate(raw.recurrenceId) || null,
 		sequence: raw.sequence || '0'
 	};
+}
+
+/* -------------------------------------------------------- participants UI */
+
+// Normalise a participant from the server ({email, name, partstat}) or a
+// free-form string ("Name <email>" / "email"). Returns null when unusable.
+function normalizeParticipant(item) {
+	if (!item) {
+		return null;
+	}
+	if (typeof item === 'string') {
+		return parseParticipantString(item);
+	}
+	const email = ('' + (item.email || '')).trim();
+	if (!email) {
+		return null;
+	}
+	return {
+		email: email,
+		name: ('' + (item.name || '')).trim(),
+		partstat: ('' + (item.partstat || '')).toUpperCase()
+	};
+}
+
+function parseParticipantString(value) {
+	const str = ('' + (value == null ? '' : value)).trim();
+	if (!str) {
+		return null;
+	}
+	let name = '';
+	let email = str;
+	const match = str.match(/^(.*)<([^>]+)>\s*$/);
+	if (match) {
+		name = match[1].trim().replace(/^["']|["']$/g, '');
+		email = match[2].trim();
+	}
+	email = email.replace(/^mailto:/i, '').trim().replace(/^<|>$/g, '').trim();
+	if (!email || email.indexOf('@') === -1) {
+		return null;
+	}
+	return {email: email, name: name, partstat: ''};
+}
+
+// Status chip (icon + label) for a participant's PARTSTAT, or null.
+function participantStatus(participant) {
+	switch ((participant.partstat || '').toUpperCase()) {
+		case 'ACCEPTED':
+			return {icon: '✓', label: t('CALDAV/PARTSTAT_ACCEPTED', 'Accepted'), cls: 'mc-accepted'};
+		case 'DECLINED':
+			return {icon: '✕', label: t('CALDAV/PARTSTAT_DECLINED', 'Declined'), cls: 'mc-declined'};
+		case 'TENTATIVE':
+			return {icon: '?', label: t('CALDAV/PARTSTAT_TENTATIVE', 'Tentative'), cls: 'mc-tentative'};
+		default:
+			return null;
+	}
+}
+
+function addParticipant(item) {
+	const participant = normalizeParticipant(item);
+	if (!participant) {
+		return false;
+	}
+	const key = participant.email.toLowerCase();
+	if (participants.some(p => p.email.toLowerCase() === key)) {
+		return false;
+	}
+	participants.push(participant);
+	renderParticipants();
+	return true;
+}
+
+function removeParticipant(email) {
+	const key = ('' + email).toLowerCase();
+	participants = participants.filter(p => p.email.toLowerCase() !== key);
+	renderParticipants();
+}
+
+function renderParticipants() {
+	if (!dialogEl) {
+		return;
+	}
+	const listEl = dialogEl.querySelector('.mc-participant-list');
+	if (listEl) {
+		listEl.innerHTML = participants.map(participant => {
+			const status = participantStatus(participant);
+			const statusHtml = status
+				? '<span class="mc-participant-status ' + status.cls + '" title="' + esc(status.label) + '">' + status.icon + '</span>'
+				: '';
+			const label = participant.name || participant.email;
+			const title = participant.name ? (participant.name + ' <' + participant.email + '>') : participant.email;
+			return '<span class="mc-participant-tag" title="' + esc(title) + '">'
+				+ statusHtml
+				+ '<span class="mc-participant-name">' + esc(label) + '</span>'
+				+ '<button type="button" class="mc-participant-remove" data-participant-remove="' + esc(participant.email) + '" aria-label="' + esc(t('CALDAV/REMOVE_PARTICIPANT', 'Remove')) + '">×</button>'
+				+ '</span>';
+		}).join('');
+	}
+	const notify = dialogEl.querySelector('.mc-notify-participants');
+	if (notify) {
+		notify.hidden = !participants.length;
+	}
+}
+
+async function fetchContacts(query) {
+	try {
+		const result = await request('GetContacts', {Search: query || '', Limit: 30});
+		return (result && result.contacts) || [];
+	} catch (e) {
+		return [];
+	}
+}
+
+function renderContactSuggestions(list) {
+	if (!dialogEl) {
+		return;
+	}
+	const box = dialogEl.querySelector('.mc-participant-suggest');
+	if (!box) {
+		return;
+	}
+	const existing = new Set(participants.map(p => p.email.toLowerCase()));
+	const items = (list || []).filter(c => c && c.email && !existing.has(c.email.toLowerCase()));
+	if (!items.length) {
+		box.hidden = true;
+		box.innerHTML = '';
+		return;
+	}
+	box.innerHTML = items.map(c =>
+		'<button type="button" class="mc-participant-suggest-item" data-contact-email="' + esc(c.email) + '" data-contact-name="' + esc(c.name || '') + '">'
+		+ '<span class="mc-participant-suggest-name">' + esc(c.name || c.email) + '</span>'
+		+ '<span class="mc-participant-suggest-email">' + esc(c.email) + '</span>'
+		+ '</button>'
+	).join('');
+	box.hidden = false;
+}
+
+function scheduleContactSearch(query) {
+	clearTimeout(contactsSearchTimer);
+	contactsSearchTimer = setTimeout(() => {
+		fetchContacts(query).then(renderContactSuggestions);
+	}, 250);
+}
+
+function hideContactSuggestions() {
+	if (!dialogEl) {
+		return;
+	}
+	const box = dialogEl.querySelector('.mc-participant-suggest');
+	if (box) {
+		box.hidden = true;
+		box.innerHTML = '';
+	}
 }
 
 /* -------------------------------------------------------------- event form */
@@ -1275,6 +1522,8 @@ function eventFormEls() {
 		end: endPicker,
 		location: root.querySelector('[name="location"]'),
 		description: root.querySelector('[name="description"]'),
+		participantsList: root.querySelector('.mc-participant-list'),
+		notifyParticipants: root.querySelector('[name="notifyparticipants"]'),
 		error: root.querySelector('.mc-form-error'),
 		del: root.querySelector('[data-cal-delete]'),
 		save: root.querySelector('[data-cal-save]'),
@@ -1523,6 +1772,26 @@ function openEventForm(event, defaults) {
 	editingEvent = event || null;
 	showFormError(el, '');
 
+	// Participants: load from the series/master when editing (a recurring
+	// occurrence itself carries no attendee list), start empty otherwise.
+	const participantSource = editing ? (event.series || event) : null;
+	participants = participantSource
+		? (participantSource.attendees || []).map(normalizeParticipant).filter(Boolean)
+		: [];
+	renderParticipants();
+	hideContactSuggestions();
+	const participantInput = dialogEl.querySelector('.mc-participant-input');
+	if (participantInput) {
+		participantInput.value = '';
+	}
+	if (el.participantsList) {
+		el.participantsList.scrollTop = 0;
+	}
+	// Default to notifying on new events; never auto-notify on an edit.
+	if (el.notifyParticipants) {
+		el.notifyParticipants.checked = !editing;
+	}
+
 	el.root.querySelector('.mc-form-title').textContent = editing
 		? t('CALDAV/EDIT_EVENT', 'Edit event')
 		: t('CALDAV/NEW_EVENT', 'New event');
@@ -1589,8 +1858,10 @@ function closeEventForm() {
 	startPicker && startPicker.close();
 	endPicker && endPicker.close();
 	untilPicker && untilPicker.close();
+	hideContactSuggestions();
 	editingEvent = null;
 	editingSeries = null;
+	participants = [];
 	descriptionBlock = '';
 }
 
@@ -1646,24 +1917,38 @@ async function saveEventForm(event) {
 		End: endParam,
 		AllDay: allDay ? 1 : 0,
 		Description: joinDescriptionBlock(el.description.value, descriptionBlock),
-		Location: el.location.value
+		Location: el.location.value,
+		Attendees: participants.map(p => ({email: p.email, name: p.name || '', partstat: p.partstat || ''}))
 	};
 
 	const series = editingSeries || (editingEvent ? (editingEvent.series || editingEvent) : null);
 	const recurringSeries = !!(series && isRecurringEvent(series));
 	const onlyThis = !!(editingEvent && recurringSeries && el.onlythis.checked);
+	const notifyParticipants = !!(el.notifyParticipants && el.notifyParticipants.checked);
 
 	showFormError(el, '');
 	el.save.disabled = true;
 	try {
+		// Where the (possibly moved/recreated) event ends up, so invitations can
+		// be sent against the stored copy.
+		let eventId = '';
+		let eventUrl = '';
+		let eventCalendarId = calendarId;
+
 		if (editingEvent) {
 			if (onlyThis) {
-				// Edit a single occurrence of a recurring series (RECURRENCE-ID override)
+				// Edit a single occurrence of a recurring series (RECURRENCE-ID override).
+				// Participants belong to the whole series, so the override does not
+				// carry (or change) them.
+				params.Attendees = [];
 				params.EventId = series.id;
 				params.EventUrl = series.url || '';
 				params.Mode = 'occurrence';
 				params.RecurrenceId = icsValue(editingEvent.recurrenceId || series.start, series.allDay);
 				await saveEventRequest('UpdateCalendarEvent', params);
+				eventId = series.id;
+				eventUrl = series.url || '';
+				eventCalendarId = series.calendarId;
 			} else {
 				// Edit the whole series
 				params.EventId = series.id;
@@ -1673,21 +1958,46 @@ async function saveEventForm(event) {
 				params.Exdate = (series.exdate || []).join(',');
 				if (calendarId === series.calendarId) {
 					await saveEventRequest('UpdateCalendarEvent', params);
+					eventId = series.id;
+					eventUrl = series.url || '';
+					eventCalendarId = series.calendarId;
 				} else {
 					// Moved to another calendar: recreate the series in the target
-					await saveEventRequest('CreateCalendarEvent', params);
+					const created = await saveEventRequest('CreateCalendarEvent', params);
 					await saveEventRequest('RemoveCalendarEvent', {
 						EventId: series.id,
 						EventUrl: series.url || '',
 						CalendarId: series.calendarId,
 						Mode: 'series'
 					});
+					eventId = (created && created.uid) || '';
+					eventUrl = '';
+					eventCalendarId = calendarId;
 				}
 			}
 		} else {
 			params.Rrule = readRepeatForm(el, allDay);
-			await saveEventRequest('CreateCalendarEvent', params);
+			const created = await saveEventRequest('CreateCalendarEvent', params);
+			eventId = (created && created.uid) || '';
+			eventUrl = '';
+			eventCalendarId = calendarId;
 		}
+
+		// Send iTIP invitations to the participants when requested
+		if (notifyParticipants && participants.length && eventId) {
+			try {
+				await saveEventRequest('SendInvitations', {
+					EventId: eventId,
+					EventUrl: eventUrl,
+					CalendarId: eventCalendarId
+				});
+			} catch (inviteError) {
+				// The event itself was stored; report the invitation problem but
+				// do not block closing the form.
+				setTimeout(() => window.alert((inviteError && inviteError.message) || t('CALDAV/REQUEST_FAILED', 'Request failed')), 50);
+			}
+		}
+
 		closeEventForm();
 		await refreshEvents();
 	} catch (e) {

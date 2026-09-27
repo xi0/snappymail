@@ -4,8 +4,11 @@
 // to the invitation (Accept / Tentative / Decline). Recurring invites show the
 // recurrence pattern, per-occurrence updates (RECURRENCE-ID) are applied to that
 // occurrence only, and METHOD:CANCEL offers "Remove from calendar".
+// A participant's METHOD:REPLY shows who answered and offers to register the
+// response on the organizer's stored event (ProcessEventReply).
 // All calendar work is done by the caldav plugin backend
-// (ImportCalendarEvent / RespondToEvent / RemoveCalendarEvent JSON actions).
+// (ImportCalendarEvent / RespondToEvent / RemoveCalendarEvent / ProcessEventReply
+// JSON actions).
 ((rl) => {
 'use strict';
 
@@ -399,14 +402,24 @@ addEventListener('rl-view-model.create', e => {
 							<td>${esc(t('REPEAT', 'Repeat'))}:</td>
 							<td data-bind="text: CalDavInvite() && CalDavInvite().recurrence"></td>
 						</tr>
+						<tr data-bind="visible: CalDavInvite() && CalDavInvite().replyAttendee">
+							<td>${esc(t('PARTICIPANT', 'Participant'))}:</td>
+							<td data-bind="text: CalDavInvite() && CalDavInvite().replyAttendee"></td>
+						</tr>
+						<tr data-bind="visible: CalDavInvite() && CalDavInvite().replyStatus">
+							<td>${esc(t('RESPONSE', 'Response'))}:</td>
+							<td data-bind="text: CalDavInvite() && CalDavInvite().replyStatus"></td>
+						</tr>
 					</tbody></table>
 					<div class="caldavInviteActions">
 						<select class="caldavInviteCalendar"
-							data-bind="visible: (CalDavCanAdd() || CalDavCanRemove()) && CalDavCalendars().length > 1, options: CalDavCalendars, optionsText: 'name', optionsValue: 'id', value: CalDavCalendarId"></select>
+							data-bind="visible: (CalDavCanAdd() || CalDavCanRemove() || CalDavCanProcessReply()) && CalDavCalendars().length > 1, options: CalDavCalendars, optionsText: 'name', optionsValue: 'id', value: CalDavCalendarId"></select>
 						<button type="button" class="btn btn-success caldavInviteAdd"
 							data-bind="visible: CalDavCanAdd, click: caldavAddEvent, disable: CalDavBusy(), text: caldavAddText"></button>
 						<button type="button" class="btn btn-danger caldavInviteRemove"
 							data-bind="visible: CalDavCanRemove, click: caldavRemoveEvent, disable: CalDavBusy()">${esc(t('REMOVE_FROM_CALENDAR', 'Remove from calendar'))}</button>
+						<button type="button" class="btn btn-success caldavInviteProcess"
+							data-bind="visible: CalDavCanProcessReply, click: caldavProcessReply, disable: CalDavBusy(), text: CalDavUpdateLabel"></button>
 						<span class="caldavInviteRespond" data-bind="visible: CalDavCanRespond">
 							<button type="button" class="btn btn-success caldavInviteAccept"
 								data-bind="click: () => caldavRespond('ACCEPTED'), disable: CalDavBusy()">${esc(t('ACCEPT', 'Accept'))}</button>
@@ -428,6 +441,7 @@ addEventListener('rl-view-model.create', e => {
 	view.CalDavCanAdd = ko.observable(true);
 	view.CalDavCanRespond = ko.observable(false);
 	view.CalDavCanRemove = ko.observable(false);
+	view.CalDavCanProcessReply = ko.observable(false);
 	view.CalDavBusy = ko.observable(false);
 	view.CalDavStatus = ko.observable('');
 	view.CalDavError = ko.observable('');
@@ -435,6 +449,7 @@ addEventListener('rl-view-model.create', e => {
 	view.CalDavLocationUrl = ko.observable('');
 	view.CalDavOpenMapLabel = t('OPEN_IN_OPENSTREETMAP', 'Open in OpenStreetMap');
 	view.CalDavJoinMeetingLabel = t('JOIN_MEETING', 'Join meeting');
+	view.CalDavUpdateLabel = t('UPDATE_CALENDAR', 'Update calendar');
 	view.CalDavOsmCopyrightUrl = OSM_COPYRIGHT_URL;
 	view.CalDavOsmAttribution = OSM_ATTRIBUTION;
 	view.caldavAddText = ko.computed(() =>
@@ -518,6 +533,32 @@ addEventListener('rl-view-model.create', e => {
 		});
 	};
 
+	// Register a participant's reply (iTIP METHOD:REPLY) on the stored event
+	view.caldavProcessReply = () => {
+		const invite = view.CalDavInvite();
+		if (!invite || view.CalDavBusy()) {
+			return;
+		}
+		view.CalDavError('');
+		view.CalDavBusy(true);
+		request('ProcessEventReply', {
+			Ics: invite.rawText,
+			CalendarId: view.CalDavCalendarId() || 'default',
+			RecurrenceId: invite.recurrenceId || ''
+		}).then(result => {
+			view.CalDavBusy(false);
+			if (result && result.success) {
+				view.CalDavStatus(t('RESPONSE_REGISTERED', 'Response registered'));
+				view.CalDavCanProcessReply(false);
+			} else {
+				showError(result && result.error);
+			}
+		}).catch(err => {
+			view.CalDavBusy(false);
+			showError(err && err.message);
+		});
+	};
+
 	view.caldavRemoveEvent = () => {
 		const invite = view.CalDavInvite();
 		if (!invite || view.CalDavBusy()) {
@@ -568,6 +609,7 @@ addEventListener('rl-view-model.create', e => {
 		view.CalDavCanAdd(true);
 		view.CalDavCanRespond(false);
 		view.CalDavCanRemove(false);
+		view.CalDavCanProcessReply(false);
 
 		if (!msg) {
 			return;
@@ -603,9 +645,33 @@ addEventListener('rl-view-model.create', e => {
 				invite.recurrenceId = prop(invite, 'RECURRENCE-ID', '');
 
 				const isCancel = 'CANCEL' === invite.method;
-				view.CalDavCanAdd(!isCancel);
-				view.CalDavCanRespond(!!invite.organizer && !isCancel);
+				const isReply = 'REPLY' === invite.method;
+
+				// A participant's response: show who answered and how, and offer
+				// to apply it to the organizer's stored event.
+				if (isReply) {
+					const attendee = (invite.props['ATTENDEE'] && invite.props['ATTENDEE'][0]) || null;
+					invite.replyAttendee = attendee ? mailAddress(attendee.value) : '';
+					const partstat = (attendee && attendee.params && attendee.params.PARTSTAT) || '';
+					switch (('' + partstat).toUpperCase()) {
+						case 'ACCEPTED':
+							invite.replyStatus = t('REPLY_STATUS_ACCEPTED', 'Accepted');
+							break;
+						case 'DECLINED':
+							invite.replyStatus = t('REPLY_STATUS_DECLINED', 'Declined');
+							break;
+						case 'TENTATIVE':
+							invite.replyStatus = t('REPLY_STATUS_TENTATIVE', 'Tentative');
+							break;
+						default:
+							invite.replyStatus = partstat;
+					}
+				}
+
+				view.CalDavCanAdd(!isCancel && !isReply);
+				view.CalDavCanRespond(!isReply && !!invite.organizer && !isCancel);
 				view.CalDavCanRemove(isCancel && !!invite.uid);
+				view.CalDavCanProcessReply(isReply && !!invite.uid && !!invite.replyAttendee);
 				view.CalDavInvite(invite);
 				loadCalendars();
 			})

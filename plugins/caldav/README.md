@@ -26,6 +26,7 @@ Built for performance, privacy, and simplicity — your calendar stays perfectly
 - 📆 View and manage CalDAV calendars inside SnappyMail  
 - ➕ Create, ✏️ edit and 🗑️ delete events in **any** of your calendars  
 - 🔁 Full support for **recurring events** (daily / weekly / monthly / yearly, with interval, weekdays and an end date or count)  
+- 👥 **Invite participants** — pick them from your address book, send iTIP invitations and track their responses  
 - 🔄 Two-way synchronization with any CalDAV server  
 - 🔒 Secure encrypted connections  
 - ⚙️ Simple configuration in SnappyMail settings  
@@ -63,6 +64,20 @@ When a received mail contains a calendar invite (an `.ics` / `text/calendar` att
 Recurring invites are handled too: the invite box shows the recurrence pattern, and an invite that updates or cancels a **single occurrence** (`RECURRENCE_ID`) is applied to that occurrence only — the master series and any other overrides are preserved. Invites with `METHOD:CANCEL` show a **Remove from calendar** button instead, which deletes the whole event or just the cancelled occurrence.
 
 The invite `LOCATION` is decoded properly (the iCalendar `\,` / `\;` / `\n` escapes) and, when it also contains a video-conferencing link (Google Meet, Zoom, Microsoft Teams, Webex, …), that link is pulled out of the address and offered as a separate clickable **Join meeting** link. The same meeting link is shown under the **Location** field when editing the stored event.
+
+### 👥 Participants and invitations
+
+Every event can be given one or more **participants** (attendees):
+
+- **Add by hand** — type an address (`name@example.com` or `Jane Doe <jane@example.com>`) and press **Enter** / **comma**, or paste several at once.
+- **Pick from contacts** — start typing (or press the 👥 button) to search your SnappyMail address book and pick the contact. The search runs against the built-in address book, so no separate CardDAV setup is required; if contacts are disabled you can still type addresses manually.
+- **Remove** a participant with the **×** on its chip. When editing an event, each participant also shows a status chip (✓ accepted, ✕ declined, ? tentative) once they have replied.
+
+Participants are stored on the CalDAV event as standard `ATTENDEE` entries (with an `ORGANIZER` for you), so they sync to other clients.
+
+**Sending invitations.** Tick **E-mail invitations to participants** in the event form (it is on by default for new events) and save. The plugin sends a proper iTIP `METHOD:REQUEST` e-mail — with the current event as a `text/calendar` attachment — to every participant.
+
+**Registering responses.** When a participant replies from their own calendar client, the reply arrives as a `text/calendar` (`METHOD:REPLY`) attachment. The message view shows a **Response received** box with the participant and their answer plus an **Update calendar** button that updates that participant's `PARTSTAT` (accepted / tentative / declined) on the stored event.
 
 ### 🕒 Timezones
 

@@ -1001,6 +1001,154 @@ html.rl-left-panel-disabled #rl-left .buttonCompose {
 	font-weight: 600;
 }
 
+/* ---- Participants (attendees) ---- */
+.mailbux-cal-dialog .mc-participants {
+	position: relative;
+}
+
+.mailbux-cal-dialog .mc-participant-list {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 5px;
+	margin-bottom: 5px;
+}
+
+.mailbux-cal-dialog .mc-participant-list:empty {
+	display: none;
+}
+
+.mailbux-cal-dialog .mc-participant-tag {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	max-width: 100%;
+	background: #e8f1f8;
+	border: 1px solid #cfe3f0;
+	color: #1a4b66;
+	border-radius: 14px;
+	padding: 2px 4px 2px 9px;
+	font-size: 12.5px;
+	line-height: 1.5;
+}
+
+.mailbux-cal-dialog .mc-participant-name {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	max-width: 180px;
+}
+
+.mailbux-cal-dialog .mc-participant-status {
+	font-weight: 700;
+}
+.mailbux-cal-dialog .mc-participant-status.mc-accepted { color: #1b873b; }
+.mailbux-cal-dialog .mc-participant-status.mc-declined { color: #c62828; }
+.mailbux-cal-dialog .mc-participant-status.mc-tentative { color: #b26a00; }
+
+.mailbux-cal-dialog .mc-participant-remove {
+	border: none;
+	background: transparent;
+	color: inherit;
+	cursor: pointer;
+	font-size: 15px;
+	line-height: 1;
+	padding: 0 3px;
+	border-radius: 50%;
+}
+
+.mailbux-cal-dialog .mc-participant-remove:hover {
+	background: rgba(0, 0, 0, 0.12);
+}
+
+.mailbux-cal-dialog .mc-participant-add {
+	display: flex;
+	align-items: stretch;
+}
+
+.mailbux-cal-dialog .mc-participant-add .mc-participant-input {
+	flex: 1 1 auto;
+	min-width: 0;
+	border-top-right-radius: 0;
+	border-bottom-right-radius: 0;
+}
+
+.mailbux-cal-dialog .mc-participant-add .mc-participant-pick {
+	flex: 0 0 auto;
+	border: 1px solid #c9ced6;
+	border-left: none;
+	border-radius: 0 6px 6px 0;
+	background: #eef2f6;
+	color: #333;
+	cursor: pointer;
+	padding: 0 10px;
+	font-size: 15px;
+	line-height: 1;
+}
+
+.mailbux-cal-dialog .mc-participant-add .mc-participant-pick:hover {
+	background: #e2e8ef;
+}
+
+.mailbux-cal-dialog .mc-participant-suggest {
+	position: absolute;
+	left: 0;
+	right: 0;
+	top: 100%;
+	z-index: 20;
+	max-height: 220px;
+	overflow-y: auto;
+	background: #ffffff;
+	color: #1a1a1a;
+	border: 1px solid #d0d5dc;
+	border-radius: 8px;
+	box-shadow: 0 8px 26px rgba(0, 0, 0, 0.25);
+	margin-top: 2px;
+}
+
+.mailbux-cal-dialog .mc-participant-suggest[hidden] {
+	display: none;
+}
+
+.mailbux-cal-dialog .mc-participant-suggest-item {
+	display: flex;
+	flex-direction: column;
+	width: 100%;
+	text-align: left;
+	border: none;
+	background: transparent;
+	color: inherit;
+	cursor: pointer;
+	padding: 6px 10px;
+	font: inherit;
+	font-size: 13px;
+}
+
+.mailbux-cal-dialog .mc-participant-suggest-item:hover,
+.mailbux-cal-dialog .mc-participant-suggest-item:focus {
+	background: #eef2f6;
+	outline: none;
+}
+
+.mailbux-cal-dialog .mc-participant-suggest-name {
+	font-weight: 600;
+}
+
+.mailbux-cal-dialog .mc-participant-suggest-email {
+	font-size: 12px;
+	color: #6b7b86;
+}
+
+.mailbux-cal-dialog .mc-participant-suggest-empty {
+	padding: 8px 10px;
+	font-size: 13px;
+	color: #8c8c8c;
+}
+
+/* `.mc-check` uses display:flex, so make [hidden] win as elsewhere. */
+.mailbux-cal-dialog .mc-notify-participants[hidden] {
+	display: none;
+}
+
 /* ---- Responsive & dark mode ---- */
 @media (max-width: 720px) {
 	.mailbux-cal-dialog .mc-window {
@@ -1177,6 +1325,31 @@ html.rl-left-panel-disabled #rl-left .buttonCompose {
 		color: #fff;
 	}
 	.mailbux-cal-dialog .mc-location-osm-attr {
+		color: #a8a8a8;
+	}
+	.mailbux-cal-dialog .mc-participant-tag {
+		background: #16222b;
+		border-color: #2a3b47;
+		color: #cfe3f0;
+	}
+	.mailbux-cal-dialog .mc-participant-add .mc-participant-pick {
+		background: #2c2c2c;
+		border-color: #444;
+		color: #ddd;
+	}
+	.mailbux-cal-dialog .mc-participant-add .mc-participant-pick:hover {
+		background: #383838;
+	}
+	.mailbux-cal-dialog .mc-participant-suggest {
+		background: #1f1f1f;
+		color: #d8d8d8;
+		border-color: #3b3b3b;
+	}
+	.mailbux-cal-dialog .mc-participant-suggest-item:hover,
+	.mailbux-cal-dialog .mc-participant-suggest-item:focus {
+		background: #2c2c2c;
+	}
+	.mailbux-cal-dialog .mc-participant-suggest-email {
 		color: #a8a8a8;
 	}
 }
