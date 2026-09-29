@@ -1,66 +1,558 @@
 /**
  * GazelleMail Brand Theme for SnappyMail
- * Derived from the design tokens of gazellemail.dk
+ * A modern, accessible light/dark theme derived from the gazellemail.dk design tokens.
+ *
+ * Light is the default. Dark mode is activated by the `data-theme-mode="dark"`
+ * attribute that is set on <html> (see the pre-paint script in the index template).
+ * The user's stored preference is exposed as `data-theme-pref` (light|dark|system).
  */
 
+/* ============================================================
+ * Light theme (default)
+ * ============================================================ */
 :root {
-    /* --- Core Brand Colors --- */
-    --gazelle-navy: #111827;       /* Primary text & headers */
-    --gazelle-blue: #0066cc;       /* Brand action color / Links */
-    --gazelle-blue-hover: #0052a3; /* Darker accent hover state */
-    --gazelle-light-bg: #f9fafb;   /* Main application container background */
-    --gazelle-border: #e5e7eb;     /* Soft borders & structural lines */
-    
-    /* --- SnappyMail Functional Mappings --- */
-    
-    /* Main Background & Text Layout */
-    --main-color: var(--gazelle-navy);
-    --main-bg-color: #ffffff;
-    --main-bg-image: url("images/background.png");
-    
-    /* Panels, Lists and Workspace Controls */
-    --panel-color: var(--gazelle-navy);
-    --panel-bg-color: var(--gazelle-light-bg);
-    --panel-border-color: var(--gazelle-border);
-    
-    /* Active States & Highlighting */
-    --selection-color: #ffffff;
-    --selection-bg-color: var(--gazelle-blue);
-    
-    /* Buttons & Interactive Elements */
-    --btn-color: #ffffff;
-    --btn-bg-color: var(--gazelle-blue);
-    --btn-border-color: var(--gazelle-blue);
-    
-    --btn-hover-color: #ffffff;
-    --btn-hover-bg-color: var(--gazelle-blue-hover);
-    --btn-hover-border-color: var(--gazelle-blue-hover);
+	color-scheme: light;
+	accent-color: #0066cc;
 
-    /* Form Fields & Inputs */
-    --input-color: var(--gazelle-navy);
-    --input-bg-color: #ffffff;
-    --input-border-color: var(--gazelle-border);
-    --input-focus-border-color: var(--gazelle-blue);
+	/* Brand */
+	--gazelle-blue: #0066cc;
+	--gazelle-blue-hover: #0052a3;
+	--gazelle-blue-soft: #e0edfb;
+	--gazelle-focus-ring: rgba(0, 102, 204, 0.18);
 
-    /* Accent & Brand Elements */
-    --accent-color: var(--gazelle-blue);
-    --accent-bg-color: #e6f0fa;
-    
-    /* Miscellaneous Scaffolding UI */
-    --loading-color: var(--gazelle-blue);
-    --scrollbar-thumb-color: var(--gazelle-border);
-    --scrollbar-thumb-hover-color: #d1d5db;
+	/* MAIN */
+	--main-color: #111827;
+	--main-bg-color: #eef1f6;
+	--main-bg-image: none;
+	--main-bg-size: auto;
+	--main-bg-repeat: no-repeat;
+	--main-font-size: 14px;
+	--link-color: #0066cc;
+	--border-color: #e2e8f0;
+	--border-radius: 10px;
+	--hr-color: #e5e7eb;
+
+	--panel-bg-clr: #ffffff;
+
+	/* FEEDBACK */
+	--warning-clr: #92400e;
+	--warning-bg-clr: #fef3c7;
+	--warning-border-clr: #fde68a;
+	--error-clr: #b91c1c;
+	--error-bg-clr: #fee2e2;
+	--error-border-clr: #fecaca;
+	--info-clr: #1e40af;
+	--info-bg-clr: #dbeafe;
+	--info-border-clr: #bfdbfe;
+
+	/* LOADING */
+	--loading-color: #0066cc;
+	--loading-text-shadow: none;
+
+	/* LOGIN */
+	--login-color: #111827;
+	--login-bg-color: #ffffff;
+	--login-box-shadow: 0 24px 50px -20px rgba(16, 24, 40, 0.35);
+	--login-border: 1px solid #e2e8f0;
+	--login-border-radius: 14px;
+	--spinner-color: #0066cc;
+
+	/* MENU */
+	--dropdown-menu-color: #111827;
+	--dropdown-menu-bg-color: #ffffff;
+	--dropdown-menu-hover-bg-color: #f1f5f9;
+	--dropdown-menu-hover-color: #0f172a;
+	--dropdown-menu-disabled-color: #9ca3af;
+	--dropdown-menu-border-clr: #e2e8f0;
+
+	/* FOLDERS */
+	--folders-color: #334155;
+	--folders-disabled-color: #94a3b8;
+	--folders-selected-color: #003a75;
+	--folders-selected-bg-color: #e0edfb;
+	--folders-focused-color: #003a75;
+	--folders-focused-bg-color: #dbeafe;
+	--folders-hover-color: #0f172a;
+	--folders-hover-bg-color: #eef1f6;
+	--folders-drop-color: #003a75;
+	--folders-drop-bg-color: #dbeafe;
+	--unread-count-color: #ffffff;
+	--unread-count-bg-color: #0066cc;
+
+	/* SETTINGS */
+	--settings-menu-color: #475569;
+	--settings-menu-selected-color: #003a75;
+	--settings-menu-selected-bg-color: #e0edfb;
+	--settings-menu-hover-color: #0f172a;
+	--settings-menu-hover-bg-color: #eef1f6;
+
+	/* MESSAGES */
+	--message-list-toolbar-bg-color: #f8fafc;
+	--message-header-bg-clr: #f8fafc;
+
+	/* DIALOGS */
+	--dialog-clr: #111827;
+	--dialog-bg-clr: #ffffff;
+	--dialog-border-clr: #e2e8f0;
+	--dialog-border-radius: 14px;
+
+	/* FORMS */
+	--btn-clr: #111827;
+	--btn-bg-clr: #ffffff;
+	--btn-border-clr: #d6dde7;
+	--btn-border-radius: 8px;
+	--btn-success-bg-clr: #16a34a;
+	--btn-danger-bg-clr: #dc2626;
+
+	--input-clr: #111827;
+	--input-bg-clr: #ffffff;
+	--input-border-clr: #d6dde7;
+	--input-border-radius: 8px;
+	--input-focus-border-clr: #0066cc;
+
+	/* TABLES */
+	--tr-hover-bg-clr: #f1f5f9;
+	--tr-odd-bg-clr: #f8fafc;
+
+	/* TABS */
+	--tab-active-bg-clr: #ffffff;
+	--tab-hover-border-clr: #e2e8f0;
+
+	--smMainShadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 2px 8px rgba(16, 24, 40, 0.08);
 }
 
-.app-layout {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+/* ============================================================
+ * Dark theme
+ * ============================================================ */
+:root[data-theme-mode="dark"] {
+	color-scheme: dark;
+	accent-color: #3b82f6;
+
+	/* Brand */
+	--gazelle-blue: #3b82f6;
+	--gazelle-blue-hover: #2563eb;
+	--gazelle-blue-soft: #1e3a5f;
+	--gazelle-focus-ring: rgba(59, 130, 246, 0.35);
+
+	/* MAIN */
+	--main-color: #e5e7eb;
+	--main-bg-color: #0b1220;
+	--main-bg-image: none;
+	--link-color: #60a5fa;
+	--border-color: #26334a;
+	--hr-color: #26334a;
+
+	--panel-bg-clr: #111a2b;
+
+	/* FEEDBACK */
+	--warning-clr: #fcd34d;
+	--warning-bg-clr: #3a2f0b;
+	--warning-border-clr: #5c4a12;
+	--error-clr: #fca5a5;
+	--error-bg-clr: #3b1416;
+	--error-border-clr: #5c2023;
+	--info-clr: #93c5fd;
+	--info-bg-clr: #10233f;
+	--info-border-clr: #1e3a5f;
+
+	/* LOADING */
+	--loading-color: #cbd5e1;
+	--loading-text-shadow: none;
+
+	/* LOGIN */
+	--login-color: #e5e7eb;
+	--login-bg-color: #111a2b;
+	--login-box-shadow: 0 24px 60px -20px rgba(0, 0, 0, 0.7);
+	--login-border: 1px solid #26334a;
+	--login-border-radius: 14px;
+	--spinner-color: #3b82f6;
+
+	/* MENU */
+	--dropdown-menu-color: #e5e7eb;
+	--dropdown-menu-bg-color: #151f33;
+	--dropdown-menu-hover-bg-color: #26334a;
+	--dropdown-menu-hover-color: #ffffff;
+	--dropdown-menu-disabled-color: #64748b;
+	--dropdown-menu-border-clr: #26334a;
+
+	/* FOLDERS */
+	--folders-color: #cbd5e1;
+	--folders-disabled-color: #64748b;
+	--folders-selected-color: #dbeafe;
+	--folders-selected-bg-color: rgba(59, 130, 246, 0.18);
+	--folders-focused-color: #dbeafe;
+	--folders-focused-bg-color: rgba(59, 130, 246, 0.28);
+	--folders-hover-color: #f8fafc;
+	--folders-hover-bg-color: rgba(148, 163, 184, 0.12);
+	--folders-drop-color: #dbeafe;
+	--folders-drop-bg-color: rgba(59, 130, 246, 0.3);
+	--unread-count-color: #ffffff;
+	--unread-count-bg-color: #3b82f6;
+
+	/* SETTINGS */
+	--settings-menu-color: #94a3b8;
+	--settings-menu-selected-color: #dbeafe;
+	--settings-menu-selected-bg-color: rgba(59, 130, 246, 0.18);
+	--settings-menu-hover-color: #f8fafc;
+	--settings-menu-hover-bg-color: rgba(148, 163, 184, 0.12);
+
+	/* MESSAGES */
+	--message-list-toolbar-bg-color: #0f172a;
+	--message-header-bg-clr: #0f172a;
+
+	/* DIALOGS */
+	--dialog-clr: #e5e7eb;
+	--dialog-bg-clr: #151f33;
+	--dialog-border-clr: #26334a;
+
+	/* FORMS */
+	--btn-clr: #e5e7eb;
+	--btn-bg-clr: #1c2740;
+	--btn-border-clr: #33415a;
+
+	--input-clr: #e5e7eb;
+	--input-bg-clr: #0f172a;
+	--input-border-clr: #33415a;
+	--input-focus-border-clr: #3b82f6;
+
+	/* TABLES */
+	--tr-hover-bg-clr: #16203a;
+	--tr-odd-bg-clr: #111a2b;
+
+	/* TABS */
+	--tab-active-bg-clr: #111a2b;
+	--tab-hover-border-clr: #26334a;
+
+	--smMainShadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 16px rgba(0, 0, 0, 0.35);
 }
 
-.list-item.selected {
-    background-color: var(--gazelle-blue) !important;
-    color: #ffffff !important;
+/* ============================================================
+ * Base
+ * ============================================================ */
+/* Keep the user-selectable font (--fontSans from the boot CSS); only refine rendering. */
+#rl-app {
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
 }
 
-.list-item.unread {
-    border-left: 3px solid var(--gazelle-blue);
+html,
+body {
+	background-color: var(--main-bg-color);
+}
+
+/* Keyboard-only focus ring (mouse clicks stay clean) */
+.btn:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+	outline: 2px solid var(--input-focus-border-clr, #0066cc);
+	outline-offset: 1px;
+}
+
+/* ============================================================
+ * Buttons
+ * ============================================================ */
+.btn {
+	box-shadow: none;
+	text-shadow: none;
+	border-radius: var(--btn-border-radius, 8px);
+	transition: background-color .15s ease, border-color .15s ease, color .15s ease, opacity .15s ease;
+}
+.btn:not(.btn-success):not(.btn-danger):not(.btn-warning):not(.btn-transparent):not(.buttonLogin):hover {
+	background-color: var(--folders-hover-bg-color, #eef1f6);
+}
+.btn:active,
+.btn.active {
+	box-shadow: none;
+}
+.btn.btn-transparent {
+	color: var(--main-color);
+	opacity: .7;
+}
+.btn.btn-transparent:hover {
+	opacity: 1;
+}
+
+/* ============================================================
+ * Forms
+ * ============================================================ */
+input,
+textarea,
+select,
+.select {
+	transition: border-color .15s ease, box-shadow .15s ease, background-color .15s ease;
+}
+input:focus,
+textarea:focus,
+.select:focus,
+.emailaddresses.emailaddresses-focused {
+	border-color: var(--input-focus-border-clr, #0066cc);
+	box-shadow: 0 0 0 3px var(--gazelle-focus-ring, rgba(0, 102, 204, 0.18));
+}
+select:focus-visible {
+	border-color: var(--input-focus-border-clr, #0066cc);
+}
+
+/* ============================================================
+ * Dropdown menus & dialogs
+ * ============================================================ */
+.dropdown-menu {
+	border-radius: 12px;
+	box-shadow: 0 12px 32px -10px rgba(16, 24, 40, 0.3);
+	padding: 6px;
+}
+.dropdown-menu a {
+	border-radius: 8px;
+	padding: 8px 12px;
+}
+.dropdown.show {
+	box-shadow: none;
+}
+.dropdown-menu * + .dividerbar {
+	margin-top: 8px;
+	padding-top: 8px;
+}
+
+dialog {
+	border-radius: var(--dialog-border-radius, 14px);
+	box-shadow: 0 24px 60px -18px rgba(16, 24, 40, 0.45);
+}
+dialog > header h3 {
+	font-size: 128%;
+	font-weight: 600;
+}
+.close {
+	text-shadow: none;
+}
+
+/* ============================================================
+ * Layout panels & toolbars
+ * ============================================================ */
+.messageList,
+.messageView,
+#V-SettingsPane,
+#V-AdminPane {
+	border-radius: var(--border-radius, 10px);
+	box-shadow: var(--smMainShadow);
+}
+
+/* These toolbars sit on the app background (not on a light panel),
+   so their base #fff text must follow the current mode. */
+.b-folders .b-toolbar,
+#V-MailMessageView .top-toolbar,
+#V-AdminPane > .b-toolbar {
+	color: var(--main-color);
+	text-shadow: none;
+}
+
+/* ============================================================
+ * Folder list
+ * ============================================================ */
+.b-folders li a {
+	border-radius: 8px;
+	margin: 1px 6px;
+	padding-left: 10px;
+	transition: background-color .15s ease, color .15s ease;
+}
+.b-folders li a.selectable.selected,
+.b-folders li a.selectable.droppableHover {
+	border-left-color: var(--gazelle-blue, #0066cc);
+}
+.focused .b-folders a.focused {
+	border-color: var(--gazelle-blue, #0066cc);
+}
+.b-folders .b-folders-system a[data-unread]::after,
+.b-folders .b-folders-user a[data-unread]:not(.system)::after {
+	text-shadow: none;
+}
+
+/* ============================================================
+ * Message list
+ * ============================================================ */
+.messageListItem {
+	border-left-width: 3px;
+}
+.messageListItem.unseen {
+	background-color: rgba(0, 102, 204, 0.08);
+	border-left-color: var(--gazelle-blue, #0066cc);
+	border-right-color: var(--gazelle-blue, #0066cc) !important;
+}
+.messageListItem.unseen.focused {
+	border-left-color: var(--gazelle-blue-hover, #0052a3);
+	border-right-color: var(--gazelle-blue-hover, #0052a3) !important;
+}
+.messageListItem [data-unseen] {
+	background-color: rgba(0, 102, 204, 0.12);
+	border-color: var(--gazelle-blue, #0066cc);
+}
+.messageList .b-footer .e-quota {
+	border-bottom-color: var(--main-color);
+}
+
+/* ============================================================
+ * Settings (theme picker tiles)
+ * ============================================================ */
+#V-Settings-Themes figure {
+	border-radius: 10px;
+}
+#V-Settings-Themes figure:hover {
+	border-color: var(--gazelle-blue, #0066cc);
+}
+#V-Settings-Themes figure.selected {
+	background-color: var(--gazelle-blue-soft, #e0edfb);
+	border-color: var(--gazelle-blue, #0066cc);
+}
+#V-Settings-Themes figure img {
+	border-radius: 8px;
+}
+
+/* ============================================================
+ * Login
+ * ============================================================ */
+.LoginView .descWrapper {
+	color: var(--main-color);
+}
+.LoginView input,
+.LoginView .btn {
+	background-color: var(--input-bg-clr, #fff);
+	border: 1px solid var(--input-border-clr, #d6dde7);
+	border-radius: var(--input-border-radius, 8px);
+	color: var(--input-clr, #111827);
+}
+.LoginView input:placeholder {
+	color: #94a3b8;
+}
+.LoginView input:focus,
+.LoginView input:hover,
+.LoginView .btn:hover,
+.LoginView .btn:active {
+	border-color: var(--input-focus-border-clr, #0066cc);
+}
+.LoginView .btn {
+	text-transform: none;
+}
+.LoginView .buttonLogin {
+	background-color: var(--gazelle-blue, #0066cc);
+	border-color: var(--gazelle-blue, #0066cc);
+	color: #fff;
+	font-weight: 600;
+}
+.LoginView .buttonLogin:hover,
+.LoginView .buttonLogin:active {
+	background-color: var(--gazelle-blue-hover, #0052a3);
+	border-color: var(--gazelle-blue-hover, #0052a3);
+	color: #fff;
+}
+
+/* ============================================================
+ * Dark-mode fixes for hard-coded light colors
+ * ============================================================ */
+:root[data-theme-mode="dark"] .messageList .b-content .listSearchDesc {
+	border-bottom-color: var(--border-color);
+}
+:root[data-theme-mode="dark"] .messageList .b-content .fullThreadsParent {
+	background-color: var(--message-list-toolbar-bg-color);
+}
+:root[data-theme-mode="dark"] .messageListItem .threadsCountParent {
+	background-color: #1c2740;
+	border-color: #33415a;
+	color: #e5e7eb;
+}
+:root[data-theme-mode="dark"] .messageListItem .threads-len {
+	border-color: #33415a;
+	color: #e5e7eb;
+}
+:root[data-theme-mode="dark"] .emailaddresses li[draggable] {
+	background-color: #1c2740;
+	border-color: #33415a;
+	box-shadow: none;
+	color: #e5e7eb;
+}
+:root[data-theme-mode="dark"] code,
+:root[data-theme-mode="dark"] pre {
+	background-color: #0f172a;
+	border-color: #26334a;
+	color: #e5e7eb;
+}
+:root[data-theme-mode="dark"] .messageList .b-content .listEmptyMessage,
+:root[data-theme-mode="dark"] .messageList .b-content .listLoading,
+:root[data-theme-mode="dark"] .messageList .b-content .listDragOver,
+:root[data-theme-mode="dark"] .messageList .b-content .listLoadMore {
+	color: #94a3b8;
+}
+:root[data-theme-mode="dark"] #messageItem .pgpInfo {
+	background-color: #3a2f0b;
+	color: #fcd34d;
+}
+:root[data-theme-mode="dark"] #messageItem .pgpInfo.success {
+	background-color: #10233f;
+	color: #93c5fd;
+}
+:root[data-theme-mode="dark"] .attachmentItem .iconProgress {
+	background-color: #26334a;
+}
+:root[data-theme-mode="dark"] .attachmentItem .attachmentNameParent {
+	border-left-color: #26334a;
+}
+:root[data-theme-mode="dark"] #messageItem .b-text-part a:visited {
+	color: #c084fc;
+}
+
+/* ============================================================
+ * Theme switch UI
+ * ============================================================ */
+/* Quick toggle (account menu / admin toolbar): reveal the relevant label */
+.sm-theme-when-dark {
+	display: none;
+}
+html[data-theme-mode="dark"] .sm-theme-when-light {
+	display: none;
+}
+html[data-theme-mode="dark"] .sm-theme-when-dark {
+	display: inline;
+}
+
+/* Appearance segmented control (Settings) */
+.sm-appearance {
+	display: inline-flex;
+	gap: 4px;
+	padding: 3px;
+	background-color: var(--panel-bg-clr, #fff);
+	border: 1px solid var(--border-color, #e2e8f0);
+	border-radius: 10px;
+}
+.sm-appearance button {
+	background: transparent;
+	border: 0;
+	border-radius: 7px;
+	color: var(--main-color);
+	cursor: pointer;
+	font: inherit;
+	line-height: 1.2;
+	padding: 6px 16px;
+}
+.sm-appearance button:hover {
+	background-color: var(--folders-hover-bg-color, #eef1f6);
+}
+:root[data-theme-pref="light"] .sm-appearance button[data-sm-theme-set="light"],
+:root[data-theme-pref="dark"] .sm-appearance button[data-sm-theme-set="dark"],
+:root[data-theme-pref="system"] .sm-appearance button[data-sm-theme-set="system"] {
+	background-color: var(--input-focus-border-clr, #0066cc);
+	color: #fff;
+}
+
+/* ============================================================
+ * Accessibility
+ * ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+	.btn,
+	button,
+	a,
+	input,
+	select,
+	textarea {
+		transition: none !important;
+	}
 }

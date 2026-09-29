@@ -1,3 +1,24 @@
+## Unreleased
+
+### Added
+- Light/Dark/System appearance switch
+  - Quick toggle in the account menu and admin panel toolbar
+  - "Appearance" selector in Settings -> General
+  - Follows the OS preference (`prefers-color-scheme`) by default, remembered per browser
+- Inline pre-paint theme script in the index template so the chosen mode is applied without flashing
+
+### Changed
+- Gazellemail is now the only bundled theme; the other themes were removed
+- Default theme is now `Gazellemail` (application.ini `[webmail]theme`)
+- Rewrote the Gazellemail theme as a modern, accessible light/dark theme using the
+  correct SnappyMail CSS variables (flat toolbars, rounded cards/inputs/buttons,
+  keyboard focus rings, tinted folder selection, unread pills, dark-mode fixes)
+
+### Fixed
+- Gazellemail theme used non-existent CSS variable names (`--btn-bg-color`,
+  `--input-color`, `--panel-bg-color`, ...) which had no effect
+
+
 ## 2.38.2 – 2024-10-09
 ### Fixed
 - error '$index is not defined' in Settings > Accounts

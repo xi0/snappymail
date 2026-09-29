@@ -42,7 +42,9 @@
 		"DEFAULT": "default",
 		"HELP": "Help",
 		"TEXT": "Text",
-		"ATTACHMENTS": "Attachments"
+		"ATTACHMENTS": "Attachments",
+		"SWITCH_TO_DARK": "Dark mode",
+		"SWITCH_TO_LIGHT": "Light mode"
 	},
 	"LOGIN": {
 		"LABEL_LOGIN": "Login",
@@ -462,6 +464,10 @@
 	},
 	"SETTINGS_GENERAL": {
 		"LANGUAGE": "Language",
+		"LABEL_APPEARANCE": "Appearance",
+		"APPEARANCE_LIGHT": "Light",
+		"APPEARANCE_DARK": "Dark",
+		"APPEARANCE_SYSTEM": "System",
 		"HOUR_FORMAT": "Hour format",
 		"IDENTITY": "Identity",
 		"LAYOUT": "Layout",

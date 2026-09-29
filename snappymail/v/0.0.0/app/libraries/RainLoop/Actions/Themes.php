@@ -10,7 +10,7 @@ trait Themes
 	{
 		static $sTheme;
 		if (!$sTheme) {
-			$sTheme = $this->Config()->Get('webmail', 'theme', 'Default');
+			$sTheme = $this->Config()->Get('webmail', 'theme', 'Gazellemail');
 			if (!$bAdmin
 			 && ($oAccount = $this->getAccountFromToken(false))
 			 && $this->GetCapa(Capa::THEMES)
@@ -32,8 +32,6 @@ trait Themes
 			return $aCache;
 		}
 
-		$bClear = false;
-		$bDefault = false;
 		$aCache = array();
 		$sDir = APP_VERSION_ROOT_PATH . 'themes';
 		if (\is_dir($sDir)) {
@@ -42,13 +40,7 @@ trait Themes
 				while (($sFile = \readdir($rDirH)) !== false) {
 					if ('.' !== $sFile[0] && \is_dir($sDir . '/' . $sFile)
 					 && (\file_exists("{$sDir}/{$sFile}/styles.css") || \file_exists("{$sDir}/{$sFile}/styles.less"))) {
-						if ('Default' === $sFile) {
-							$bDefault = true;
-						} else if ('Clear' === $sFile) {
-							$bClear = true;
-						} else {
-							$aCache[] = $sFile;
-						}
+						$aCache[] = $sFile;
 					}
 				}
 				closedir($rDirH);
@@ -82,16 +74,8 @@ trait Themes
 			}
 		}
 
-		$aCache = \array_unique($aCache);
+		$aCache = \array_values(\array_unique($aCache));
 		\sort($aCache);
-
-		if ($bDefault) {
-			\array_unshift($aCache, 'Default');
-		}
-
-		if ($bClear) {
-			\array_push($aCache, 'Clear');
-		}
 
 		return $aCache;
 	}
@@ -99,9 +83,9 @@ trait Themes
 	public function ValidateTheme(string $sTheme): string
 	{
 		if (!\in_array($sTheme, $this->GetThemes())) {
-			$sTheme = $this->Config()->Get('webmail', 'theme', 'Default');
+			$sTheme = $this->Config()->Get('webmail', 'theme', 'Gazellemail');
 			if (!\in_array($sTheme, $this->GetThemes())) {
-				$sTheme = 'Default';
+				$sTheme = 'Gazellemail';
 			}
 		}
 		return $sTheme;
