@@ -4,8 +4,8 @@
 			<i class="icon-paper-plane"></i>
 			<span class="buttonComposeText" data-i18n="FOLDER_LIST/BUTTON_NEW_MESSAGE"></span>
 		</a>
-		<a class="btn buttonContacts fontastic" data-bind="visible: allowContacts, click: contactsClick" data-i18n="[title]GLOBAL/CONTACTS">📇</a>
-		<a class="btn buttonCalendar fontastic" data-i18n="[title]SETTINGS_FOLDERS/TYPE_CALENDAR">📅</a>
+		<a class="btn buttonContacts icon-contact" data-bind="visible: allowContacts, click: contactsClick" data-i18n="[title]GLOBAL/CONTACTS"></a>
+		<a class="btn buttonCalendar icon-file-calendar" data-i18n="[title]SETTINGS_FOLDERS/TYPE_CALENDAR"></a>
 	</div>
 	<div class="b-content">
 		<ul class="b-folders-system" data-bind="foreach: systemFolders">
@@ -15,7 +15,7 @@
 					attr: { 'data-icon': icon, 'data-unread': unreadCount }">
 					<!-- ko text: localName --><!-- /ko -->
 					<!-- ko if: isInbox -->
-					<span class="flag-icon fontastic"></span>
+					<span class="flag-icon"></span>
 					<!-- /ko -->
 				</a>
 			</li>
@@ -23,10 +23,10 @@
 		<hr>
 		<div class="search-input-wrp" data-bind="visible: foldersFilterVisible">
 			<input type="search" id="folderSearchInput" data-bind="textInput: foldersFilter" data-i18n="[placeholder]GLOBAL/SEARCH">
-			<a data-bind="click: clearFolderSearch, visible: foldersFilter">✕</a>
+			<a class="icon-close" data-bind="click: clearFolderSearch, visible: foldersFilter"></a>
 		</div>
 		<div class="e-checkbox" tabindex="0" data-bind="toggle: filterUnseen">
-			<i role="checkbox" class="fontastic" data-bind="text: filterUnseen() ? '☑' : '☐'"></i>
+			<i role="checkbox" data-bind="css: {'icon-square': !filterUnseen(), 'icon-square-check': filterUnseen()}"></i>
 			<span data-i18n="SEARCH/UNSEEN"></span>
 		</div>
 		<ul class="b-folders-user" data-bind="css: {unreadOnly: filterUnseen}, template: { name: 'MailFolderListItem', foreach: folderListVisible }"></ul>
@@ -34,11 +34,11 @@
 	</div>
 	<div class="b-footer btn-toolbar">
 		<div class="btn-group">
-			<a class="btn fontastic toggleLeft" data-bind="click: toggleLeftPanel"></a>
+			<a class="btn toggleLeft" data-bind="click: toggleLeftPanel"></a>
 		</div>
 		<div class="btn-group hide-on-panel-disabled">
 			<a class="btn icon-folder-add" data-bind="click: createFolder" data-i18n="[title]POPUPS_CREATE_FOLDER/TITLE_CREATE_FOLDER"></a>
-			<a class="btn fontastic" data-bind="click: configureFolders" data-i18n="[title]SETTINGS_LABELS/FOLDERS">⚙</a>
+			<a class="btn icon-settings" data-bind="click: configureFolders" data-i18n="[title]SETTINGS_LABELS/FOLDERS"></a>
 		</div>
 	</div>
 </div>

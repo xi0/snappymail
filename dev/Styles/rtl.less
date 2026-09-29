@@ -7,7 +7,7 @@ html[dir="rtl"] {
 
 [dir="rtl"] {
 
-	.LoginView .controls > .fontastic:first-child {
+	.LoginView .controls > [class^="icon-"]:first-child {
 		left: unset;
 		right: 6px;
 	}
@@ -23,7 +23,8 @@ html[dir="rtl"] {
 		margin-right: 0.5em;
 	}
 
-	[data-icon]::before {
+	[class^="icon-"]::before,
+	[class*=" icon-"]::before {
 		margin-left: 0.5em;
 		margin-right: 0;
 	}

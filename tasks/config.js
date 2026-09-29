@@ -32,13 +32,13 @@ config.paths.css = {
 		name: 'app.css',
 		src: [
 			'vendors/normalize.css/normalize.css',
-			'vendors/fontastic/styles.css'
+			'vendors/icons/lucide.css'
 		]
 	},
 	admin: {
 		name: 'admin.css',
 		src: [
-			'vendors/fontastic/styles.css',
+			'vendors/icons/lucide.css',
 			'dev/Styles/@Admin.less'
 		]
 	},

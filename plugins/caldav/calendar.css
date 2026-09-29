@@ -116,13 +116,14 @@
 /* ==================================================================
    Calendar button + dialog (calendar-dialog.js)
    ================================================================== */
-.buttonCalendar {
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-}
+/* The calendar button sits next to `.buttonContacts` and must render exactly
+   like it. Do *not* switch it to `inline-flex`: a flex container derives its
+   height from its single 1em icon, whereas every other `.btn` gets its height
+   from `line-height: 2em`, which made this button visibly shorter than the
+   rest of the toolbar. Inheriting the plain `.btn` box model (inline-block)
+   keeps the icon centred and all toolbar buttons the same height.
 
-/* The "New message" button now spans its own full-width row (see
+   The "New message" button spans its own full-width row (see
    dev/Styles/User/FolderList.less), with the calendar/contacts icon buttons on
    the row below, so no horizontal room needs to be reserved here anymore. */
 
