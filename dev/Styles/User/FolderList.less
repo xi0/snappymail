@@ -194,12 +194,17 @@
 	}
 }
 
+/* Give the "New message" button its own full-width row so the label is never
+   truncated; the contacts/calendar icon buttons flow onto the row below. */
 #rl-left .buttonCompose {
+	display: block;
+	margin-bottom: 6px;
+	margin-right: 0;
 	max-height: 2em;
-	max-width: fit-content;
+	max-width: 100%;
 	overflow: hidden;
 	text-overflow: ellipsis;
-	width: calc(100% - 48px);
+	width: 100%;
 }
 
 html.rl-left-panel-disabled {
@@ -208,6 +213,7 @@ html.rl-left-panel-disabled {
 		display: none;
 	}
 	#rl-left .buttonCompose {
+		display: inline-block;
 		width: auto;
 	}
 }

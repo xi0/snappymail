@@ -122,11 +122,9 @@
 	justify-content: center;
 }
 
-/* The core toolbar only reserves room for the contacts button (48px).
-   Reserve room for the extra calendar button as well. */
-#rl-left .buttonCompose {
-	width: calc(100% - 96px);
-}
+/* The "New message" button now spans its own full-width row (see
+   dev/Styles/User/FolderList.less), with the calendar/contacts icon buttons on
+   the row below, so no horizontal room needs to be reserved here anymore. */
 
 html.rl-left-panel-disabled .buttonCalendar {
 	display: none;
