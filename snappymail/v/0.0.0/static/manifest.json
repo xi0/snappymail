@@ -1,7 +1,7 @@
 {
-	"name": "SnappyMail Webmail",
-	"short_name": "SnappyMail",
-	"description": "Simple, modern & fast web-based email client",
+	"name": "GazelleMail Webmail",
+	"short_name": "GazelleMail",
+	"description": "Dansk udviklet email-platform",
 	"display": "standalone",
 	"background_color": "white",
 	"theme_color": "black",
