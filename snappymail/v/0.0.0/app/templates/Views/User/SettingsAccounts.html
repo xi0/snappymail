@@ -24,7 +24,7 @@
 				<!-- /ko -->
 				<!-- ko if:isAdditional -->
 				<td>
-					<i class="fontastic drag-handle">⬍</i>
+					<i class="drag-handle">⬍</i>
 				</td>
 				<td class="e-action">
 					<span class="account-name" data-bind="text: displayName"></span>
@@ -37,7 +37,7 @@
 						data-i18n="GLOBAL/ARE_YOU_SURE"></a>
 				</td>
 				<td>
-					<span class="delete fontastic" data-bind="visible: !askDelete(), click: function (oAccount) { $root.accountForDeletion(oAccount); }">🗑</span>
+					<span class="delete icon-trash" data-bind="visible: !askDelete(), click: function (oAccount) { $root.accountForDeletion(oAccount); }"></span>
 				</td>
 				<!-- /ko -->
 			</tr>
@@ -54,7 +54,7 @@
 		<tbody data-bind="foreach: identities">
 			<tr draggable="true" data-bind="attr: {'data-identity-id': id}, sortableItem: { list: $root.identities, afterMove: $root.accountsAndIdentitiesAfterMove }">
 				<td>
-					<i class="fontastic drag-handle">⬍</i>
+					<i class="drag-handle">⬍</i>
 				</td>
 				<td class="e-action">
 					<span class="identity-name" data-bind="text: $data"></span>
@@ -65,7 +65,7 @@
 						data-i18n="GLOBAL/ARE_YOU_SURE"></a>
 				</td>
 				<td>
-					<span class="delete fontastic" data-bind="visible: !askDelete() && id(), click: function (oIdentity) { $root.identityForDeletion(oIdentity); }">🗑</span>
+					<span class="delete icon-trash" data-bind="visible: !askDelete() && id(), click: function (oIdentity) { $root.identityForDeletion(oIdentity); }"></span>
 				</td>
 			</tr>
 		</tbody>

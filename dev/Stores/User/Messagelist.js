@@ -42,6 +42,10 @@ const
 		hasher.replaceHash(hash);
 		rl.route.on();
 	},
+	// Number of messages as returned by the server (before any client-side filtering)
+	messageListLength = json => Array.isArray(json)
+		? json.length
+		: (json && Array.isArray(json['@Collection']) ? json['@Collection'].length : 0),
 	disableAutoSelect = ko.observable(false).extend({ falseTimeout: 500 });
 
 export const MessagelistUserStore = ko.observableArray().extend({ debounce: 0 });
@@ -62,6 +66,13 @@ addObservablesTo(MessagelistUserStore, {
 	loading: false,
 	// Happens when message(s) removed from list
 	isIncomplete: false,
+
+	// Endless scroll: server offset of the next chunk to load
+	listOffset: 0,
+	// Endless scroll: all messages of the current list are loaded
+	endReached: false,
+	// Endless scroll: a next chunk is being loaded
+	loadingMore: false,
 
 	selectedMessage: null,
 	focusedMessage: null
@@ -96,6 +107,10 @@ addComputablesTo(MessagelistUserStore, {
 		| MessagelistUserStore.isSpamFolder()),
 
 	pageCount: () => Math.max(1, Math.ceil(MessagelistUserStore.count() / SettingsUserStore.messagesPerPage())),
+
+	// Endless scroll: are there more messages on the server to load?
+	canLoadMore: () => !MessagelistUserStore.endReached()
+		&& MessagelistUserStore().length < MessagelistUserStore.count(),
 
 	mainSearch: {
 		read: MessagelistUserStore.listSearch,
@@ -182,6 +197,9 @@ MessagelistUserStore.canSelect = () =>
 
 let prevFolderName;
 
+// Endless scroll: bumped on every reload so a stale loadMore response is ignored
+let listGeneration = 0;
+
 /**
  * @param {boolean=} bDropPagePosition = false
  * @param {boolean=} bDropCurrentFolderCache = false
@@ -215,6 +233,7 @@ MessagelistUserStore.reload = (bDropPagePosition = false, bDropCurrentFolderCach
 		MessagelistUserStore([]);
 	}
 
+	++listGeneration;
 	MessagelistUserStore.loading(true);
 
 	let sGetAdd = '',
@@ -285,7 +304,9 @@ MessagelistUserStore.reload = (bDropPagePosition = false, bDropCurrentFolderCach
 						folderInfo.name +
 						'|' + collection.search +
 						'|' + MessagelistUserStore.threadUid() +
-						'|' + MessagelistUserStore.page()
+						'|' + MessagelistUserStore.page() +
+						// Force a change on every reload so the view re-checks for more messages
+						'|' + listGeneration
 					);
 					MessagelistUserStore.endThreadUid(collection.threadUid);
 					const message = MessageUserStore.message();
@@ -308,6 +329,12 @@ MessagelistUserStore.reload = (bDropPagePosition = false, bDropCurrentFolderCach
 
 					MessagelistUserStore(collection);
 					MessagelistUserStore.isIncomplete(false);
+					// Endless scroll: reset the load position for the freshly loaded list
+					MessagelistUserStore.listOffset((collection.offset || 0) + messageListLength(oData.Result));
+					MessagelistUserStore.endReached(
+						MessagelistUserStore().length >= MessagelistUserStore.count()
+					);
+					MessagelistUserStore.loadingMore(false);
 				} else {
 					MessagelistUserStore.count(0);
 					MessagelistUserStore([]);
@@ -337,6 +364,81 @@ MessagelistUserStore.reload = (bDropPagePosition = false, bDropCurrentFolderCach
 		60000, // 60 seconds before aborting
 		sGetAdd
 	);
+};
+
+/**
+ * Endless scroll: loads the next chunk of messages and appends it to the list.
+ * @param {Function=} afterLoad Called after a successful append
+ */
+MessagelistUserStore.loadMore = (afterLoad) => {
+	if (MessagelistUserStore.loading()
+	 || MessagelistUserStore.isIncomplete()
+	 || MessagelistUserStore.error()
+	 || !MessagelistUserStore.canLoadMore()) {
+		return;
+	}
+
+	const params = {
+		folder: FolderUserStore.currentFolderFullName(),
+		offset: MessagelistUserStore.listOffset(),
+		limit: SettingsUserStore.messagesPerPage(),
+		uidNext: 0, // Nothing new to detect, only fetch a next slice
+		sort: FolderUserStore.sortMode(),
+		search: MessagelistUserStore.listSearch()
+	};
+
+	if (AppUserStore.threadsAllowed() && SettingsUserStore.useThreads()) {
+		params.useThreads = 1;
+		params.threadAlgorithm = SettingsUserStore.threadAlgorithm();
+		params.threadUid = MessagelistUserStore.threadUid();
+	} else {
+		params.threadUid = 0;
+	}
+
+	MessagelistUserStore.loading(true);
+	MessagelistUserStore.loadingMore(true);
+
+	const generation = listGeneration;
+
+	Remote.abort('MessageList', 'loadMore').request('MessageList', (iError, oData) => {
+		MessagelistUserStore.loadingMore(false);
+		if (generation !== listGeneration) {
+			// A (re)load superseded this request, let it manage the loading state
+			return;
+		}
+		MessagelistUserStore.loading(false);
+		if (iError) {
+			return;
+		}
+
+		const json = oData?.Result,
+			count = messageListLength(json),
+			collection = MessageCollectionModel.reviveFromJson(json);
+
+		if (!collection || !count) {
+			MessagelistUserStore.endReached(true);
+			return;
+		}
+
+		MessagelistUserStore.listOffset((collection.offset || 0) + count);
+		// Append to the same array so folder info and checked/focused states are preserved.
+		// Skip messages already in the list in case of overlapping ranges.
+		const known = new Set(
+			MessagelistUserStore().map(message => message.folder + '/' + message.uid)
+		);
+		const added = collection.filter(message => !known.has(message.folder + '/' + message.uid));
+		MessagelistUserStore.push(...added);
+
+		// Stop when a full chunk contained only already-seen messages (server ignoring the
+		// offset), otherwise endless scroll would keep requesting the same records forever.
+		if (!added.length
+		 || count < SettingsUserStore.messagesPerPage()
+		 || MessagelistUserStore().length >= MessagelistUserStore.count()) {
+			MessagelistUserStore.endReached(true);
+		}
+
+		afterLoad && afterLoad();
+	}, params, 60000);
 };
 
 /**

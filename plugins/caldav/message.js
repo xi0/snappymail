@@ -360,7 +360,7 @@ addEventListener('rl-view-model.create', e => {
 	// Inject the invite box into the template only once
 	if (!template.content.querySelector('.caldavInvite')) {
 		attachmentsPlace.after(Element.fromHTML(`
-			<div class="caldavInvite" data-bind="if: CalDavInvite">
+			<div class="caldavInvite" data-bind="if: CalDavInvite, visible: CalDavInvite">
 				<details open>
 					<summary>
 						<span data-icon="📅"></span>

@@ -181,7 +181,7 @@ class Application extends \RainLoop\Config\AbstractConfig
 				'favicon_url'                 => array(''),
 				'app_path'                    => array(''),
 
-				'theme'                       => array('Default', 'Theme used by default'),
+				'theme'                       => array('Gazellemail', 'Theme used by default'),
 				'allow_themes'                => array(true, 'Allow theme selection on settings screen'),
 				'allow_user_background'       => array(false),
 

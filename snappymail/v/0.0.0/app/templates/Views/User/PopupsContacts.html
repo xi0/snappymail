@@ -4,14 +4,14 @@
 
 	<div class="btn-toolbar">
 
-		<a class="btn" data-bind="click: newContact" data-icon="✚" data-i18n="CONTACTS/BUTTON_ADD_CONTACT"></a>
+		<a class="btn icon-plus" data-bind="click: newContact" data-i18n="CONTACTS/BUTTON_ADD_CONTACT"></a>
 
-		<a class="btn btn-success fontastic" data-bind="command: newMessageCommand">✉</a>
+		<a class="btn btn-success icon-mail" data-bind="command: newMessageCommand"></a>
 
-		<a class="btn fontastic" data-bind="command: deleteCommand">🗑</a>
+		<a class="btn icon-trash" data-bind="command: deleteCommand"></a>
 
 		<div class="btn-group dropdown" data-bind="registerBootstrapDropdown: true, visible: !contacts.importing() && !contacts.syncing()">
-			<a id="contacts-more-dropdown-id" class="btn dropdown-toggle fontastic" href="#">☰</a>
+			<a id="contacts-more-dropdown-id" class="btn dropdown-toggle icon-down-mini" href="#"></a>
 			<menu class="dropdown-menu right-edge" role="menu" aria-labelledby="contacts-more-dropdown-id">
 				<li role="presentation">
 					<a href="#" data-bind="initDom: importButton">
@@ -33,7 +33,7 @@
 				</li>
 				<li class="dividerbar" role="presentation" data-bind="visible: contactsSyncEnabled">
 					<a href="#" data-bind="command: syncCommand">
-						<i class="fontastic" data-bind="css: {'icon-spinner': contacts.syncing}">⇆</i>
+						<i data-bind="css: {'icon-sync': !contacts.syncing(), 'icon-spinner': contacts.syncing}"></i>
 						<span data-i18n="CONTACTS/BUTTON_SYNC"></span>
 					</a>
 				</li>
@@ -62,7 +62,7 @@
 					data-i18n="CONTACTS/EMPTY_SEARCH"></div>
 				<div class="e-contact-foreach g-ui-user-select-none" data-bind="foreach: contacts, visible: contacts().length">
 					<div class="e-contact-item g-ui-user-select-none" data-bind="css: lineAsCss()">
-						<div class="checkboxItem fontastic" data-bind="text: checked() ? '☑' : '☐'"></div>
+						<div class="checkboxItem" data-bind="css: {'icon-square-check': checked(), 'icon-square': !checked()}"></div>
 						<div class="nameParent" data-bind="text: display"></div>
 					</div>
 				</div>
@@ -89,7 +89,7 @@
 					data-i18n="CONTACTS/TAB_CONTACT"></label>
 				<div class="form-horizontal tab-content" role="tabpanel" aria-hidden="false">
 					<div class="control-group">
-						<label class="fontastic iconsize24">👤</label>
+						<label class="iconsize24 icon-user"></label>
 						<div>
 							<div class="property-line" data-i18n="[title]CONTACTS/FIRST_NAME">
 								<span data-bind="text: givenName"></span>
@@ -131,7 +131,7 @@
 						</div>
 					</div>
 					<div class="control-group">
-						<label class="fontastic iconsize24" data-i18n="[title]GLOBAL/EMAIL">@</label>
+						<label class="iconsize24 icon-mail" data-i18n="[title]GLOBAL/EMAIL"></label>
 						<div>
 							<label class="e-component e-checkbox material-design">
 								<div>
@@ -149,11 +149,11 @@
 										data-bind="textInput: value">
 								</div>
 							</div>
-							<a href="#" class="btn fontastic" data-bind="visible: !readOnly(), click: addEmail">✚</a>
+							<a href="#" class="btn icon-plus" data-bind="visible: !readOnly(), click: addEmail"></a>
 						</div>
 					</div>
 					<div class="control-group" data-bind="visible: tel().length">
-						<label class="fontastic iconsize24" data-i18n="[title]CONTACTS/ADD_MENU_PHONE">📞</label>
+						<label class="iconsize24 icon-phone" data-i18n="[title]CONTACTS/ADD_MENU_PHONE"></label>
 						<div>
 							<div data-bind="foreach: tel">
 								<div class="property-line">
@@ -163,11 +163,11 @@
 										data-bind="textInput: value">
 								</div>
 							</div>
-							<a href="#" class="btn fontastic" data-bind="visible: !readOnly(), click: addTel">✚</a>
+							<a href="#" class="btn icon-plus" data-bind="visible: !readOnly(), click: addTel"></a>
 						</div>
 					</div>
 					<div class="control-group" data-bind="visible: url().length">
-						<label class="fontastic iconsize24" data-i18n="[title]CONTACTS/ADD_MENU_URL">🌍</label>
+						<label class="iconsize24 icon-globe" data-i18n="[title]CONTACTS/ADD_MENU_URL"></label>
 						<div>
 							<div data-bind="foreach: url">
 								<div class="property-line">
@@ -177,11 +177,11 @@
 										data-bind="textInput: value">
 								</div>
 							</div>
-							<a href="#" class="btn fontastic" data-bind="visible: !readOnly(), click: addUrl">✚</a>
+							<a href="#" class="btn icon-plus" data-bind="visible: !readOnly(), click: addUrl"></a>
 						</div>
 					</div>
 					<div class="control-group" data-bind="visible: null != note()">
-						<label class="fontastic iconsize24" data-i18n="[title]CONTACTS/ADD_MENU_NOTE">🖉</label>
+						<label class="iconsize24 icon-pencil" data-i18n="[title]CONTACTS/ADD_MENU_NOTE"></label>
 						<div class="property-line">
 							<span data-bind="text: note"></span>
 							<input type="text"
@@ -295,25 +295,25 @@
 					</li>
 					<li role="presentation">
 						<a href="#" data-bind="click: addEmail">
-							<i class="fontastic">@</i>
+							<i class="icon-mail"></i>
 							<span data-i18n="GLOBAL/EMAIL"></span>
 						</a>
 					</li>
 					<li role="presentation">
 						<a href="#" data-bind="click: addTel">
-							<i class="fontastic">📞</i>
+							<i class="icon-phone"></i>
 							<span data-i18n="CONTACTS/ADD_MENU_PHONE"></span>
 						</a>
 					</li>
 					<li role="presentation">
 						<a href="#" data-bind="click: addUrl">
-							<i class="fontastic">🌍</i>
+							<i class="icon-globe"></i>
 							<span data-i18n="CONTACTS/ADD_MENU_URL"></span>
 						</a>
 					</li>
 					<li role="presentation" data-bind="visible: null == note()">
 						<a href="#" data-bind="click: addNote">
-							<i class="fontastic">🖉</i>
+							<i class="icon-pencil"></i>
 							<span data-i18n="CONTACTS/ADD_MENU_NOTE"></span>
 						</a>
 					</li>

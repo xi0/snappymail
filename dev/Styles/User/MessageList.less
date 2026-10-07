@@ -40,10 +40,15 @@
 	}
 
 	.reply::before {
-		content: '↳';
-		line-height: 3;
+		content: '';
+		display: inline-block;
+		width: 1em;
+		height: 1em;
 		position: absolute;
 		margin-left: -1em;
+		background-color: currentColor;
+		-webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='15 10 20 15 15 20'/%3E%3Cpath d='M4 4v7a4 4 0 0 0 4 4h12'/%3E%3C/svg%3E") center / contain no-repeat;
+		mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='15 10 20 15 15 20'/%3E%3Cpath d='M4 4v7a4 4 0 0 0 4 4h12'/%3E%3C/svg%3E") center / contain no-repeat;
 	}
 
 	.b-footer {
@@ -168,6 +173,14 @@
 			padding: 3px 5px;
 			background-color: #f4f4f4;
 			text-align: center;
+		}
+
+		// Endless scroll: indicator shown while the next chunk is loading
+		.listLoadMore {
+			color: #999;
+			text-align: center;
+			padding: 20px 10px;
+			font-size: 128%;
 		}
 	}
 }
@@ -326,12 +339,20 @@
 		min-width: 1em;
 	}
 	.flagParent::after {
-		content: '☆'; /*⚐*/
+		content: ''; /*⚐*/
+		display: inline-block;
+		width: 1em;
+		height: 1em;
+		vertical-align: -0.15em;
+		background-color: currentColor;
+		-webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolygon points='12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2'/%3E%3C/svg%3E") center / contain no-repeat;
+		mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolygon points='12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2'/%3E%3C/svg%3E") center / contain no-repeat;
 	}
 	&.msgflag-\\flagged .flagParent::after,
 	&.hasFlaggedSubMessage .flagParent::after {
-		color: orange;
-		content: '★'; /*⚑*/
+		color: orange; /*⚑*/
+		-webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23fff' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolygon points='12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2'/%3E%3C/svg%3E");
+		mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23fff' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolygon points='12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2'/%3E%3C/svg%3E");
 	}
 	&:not(.msgflag-\\flagged):not(.hasFlaggedSubMessage) .flagParent:not(:hover)::after {
 		opacity: 0.5;

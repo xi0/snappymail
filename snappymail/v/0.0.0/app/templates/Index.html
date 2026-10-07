@@ -8,10 +8,48 @@
 	<meta name="robots" content="noindex,nofollow,noodp">
 	<meta name="theme-color" content="black">
 	<title></title>
+	<script nonce="">
+	/* Theme mode (light/dark/system), applied before first paint to avoid a flash. */
+	(function () {
+		var d = document, root = d.documentElement, KEY = 'smThemeMode',
+			mq = window.matchMedia ? matchMedia('(prefers-color-scheme: dark)') : null;
+		function stored() { try { var v = localStorage.getItem(KEY); return ('light' === v || 'dark' === v) ? v : null; } catch (e) { return null; } }
+		function system() { return (mq && mq.matches) ? 'dark' : 'light'; }
+		function resolve() { return stored() || system(); }
+		function apply() {
+			var mode = resolve(), pref = stored() || 'system';
+			root.setAttribute('data-theme-mode', mode);
+			root.setAttribute('data-theme-pref', pref);
+			var meta = d.querySelector('meta[name="theme-color"]');
+			meta && meta.setAttribute('content', 'dark' === mode ? '#0b1220' : '#0066cc');
+			d.dispatchEvent(new CustomEvent('sm-theme-mode', { detail: mode }));
+		}
+		function set(mode) {
+			try { 'system' === mode ? localStorage.removeItem(KEY) : localStorage.setItem(KEY, mode); } catch (e) {}
+			apply();
+		}
+		window.smThemeMode = {
+			get: resolve,
+			set: set,
+			stored: stored,
+			system: system,
+			toggle: function () { set('dark' === resolve() ? 'light' : 'dark'); }
+		};
+		apply();
+		try { mq && mq.addEventListener('change', function () { stored() || apply(); }); }
+		catch (e) { mq && mq.addListener(function () { stored() || apply(); }); }
+		d.addEventListener('click', function (e) {
+			var t = e.target && e.target.closest ? e.target.closest('[data-sm-theme-toggle],[data-sm-theme-set]') : null;
+			if (!t) { return; }
+			e.preventDefault();
+			var v = t.getAttribute('data-sm-theme-set');
+			v ? set(v) : window.smThemeMode.toggle();
+		});
+	})();
+	</script>
 	<style id="app-boot-css">{{BaseAppBootCss}}</style>
 	<link type="text/css" rel="stylesheet" href="{{BaseAppMainCssLink}}">
 	<link rel="manifest" href="{{BaseAppManifestLink}}">
-	<link rel="icon" href="{{BaseFavIconSvg}}" type="image/svg+xml">
 	<style id="app-theme-style" data-name="{{BaseAppThemeName}}">{{BaseAppThemeCss}}</style>
 	{{BaseAppFaviconPngLinkTag}}
 	{{BaseAppFaviconTouchLinkTag}}

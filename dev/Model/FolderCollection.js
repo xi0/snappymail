@@ -475,7 +475,7 @@ export class FolderModel extends AbstractModel {
 				switch (this.type())
 				{
 					case 1: return '📥'; // FolderType.Inbox
-					case 2: return '📧'; // FolderType.Sent icon-paper-plane
+					case 2: return '📧'; // FolderType.Sent
 					case 3: return '🗎'; // FolderType.Drafts
 					case 4: return '⚠'; // FolderType.Junk
 					case 5: return '🗑'; // FolderType.Trash

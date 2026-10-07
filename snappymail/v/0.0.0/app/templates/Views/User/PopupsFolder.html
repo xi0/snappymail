@@ -17,7 +17,7 @@
 	<div data-bind="with: folder">
 		<!-- ko if: canBeSubscribed -->
 		<div class="control-group">
-			<label class="fontastic">👁</label>
+			<label class="icon-eye"></label>
 			<div data-bind="component: {
 				name: 'Checkbox',
 				params: {
@@ -66,14 +66,14 @@
 				<tr>
 					<td data-bind="text: identifier"></td>
 					<td>
-						<button class="btn fontastic" data-bind="visible: mine, click: $root.editACL">👁</button>
-						<button class="btn fontastic" data-bind="visible: !mine(), click: $root.editACL">🖉</button>
-						<button class="btn fontastic" data-bind="visible: !mine(), click: $root.deleteACL">🗑</button>
+						<button class="btn icon-eye" data-bind="visible: mine, click: $root.editACL"></button>
+						<button class="btn icon-pencil" data-bind="visible: !mine(), click: $root.editACL"></button>
+						<button class="btn icon-trash" data-bind="visible: !mine(), click: $root.deleteACL"></button>
 					</td>
 				</tr>
 				<!-- /ko -->
 				<tr data-bind="visible: adminACL"><td></td><td>
-					<button class="btn fontastic" data-bind="click: createACL">✚</button>
+					<button class="btn icon-plus" data-bind="click: createACL"></button>
 				</td></tr>
 			</tbody></table>
 		</div>

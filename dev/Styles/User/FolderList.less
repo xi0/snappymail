@@ -165,13 +165,21 @@
 		margin-left: 7px;
 	}
 	.flag-icon::after {
-		content:'☆';
+		content: '';
+		display: inline-block;
+		width: 1em;
+		height: 1em;
+		vertical-align: -0.15em;
+		background-color: currentColor;
+		-webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolygon points='12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2'/%3E%3C/svg%3E") center / contain no-repeat;
+		mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolygon points='12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2'/%3E%3C/svg%3E") center / contain no-repeat;
 		opacity: .5;
 	}
 	.is-flagged {
 		.flag-icon::after {
 			color: orange;
-			content:'★';
+			-webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23fff' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolygon points='12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2'/%3E%3C/svg%3E");
+			mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23fff' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolygon points='12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2'/%3E%3C/svg%3E");
 			opacity: 1;
 		}
 	}
@@ -194,12 +202,17 @@
 	}
 }
 
+/* Give the "New message" button its own full-width row so the label is never
+   truncated; the contacts/calendar icon buttons flow onto the row below. */
 #rl-left .buttonCompose {
+	display: block;
+	margin-bottom: 6px;
+	margin-right: 0;
 	max-height: 2em;
-	max-width: fit-content;
+	max-width: 100%;
 	overflow: hidden;
 	text-overflow: ellipsis;
-	width: calc(100% - 48px);
+	width: 100%;
 }
 
 html.rl-left-panel-disabled {
@@ -208,6 +221,7 @@ html.rl-left-panel-disabled {
 		display: none;
 	}
 	#rl-left .buttonCompose {
+		display: inline-block;
 		width: auto;
 	}
 }

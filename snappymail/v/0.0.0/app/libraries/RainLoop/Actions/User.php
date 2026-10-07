@@ -153,7 +153,7 @@ trait User
 			$this->setSettingsFromParams($oSettings, 'fontSerif', 'string');
 			$this->setSettingsFromParams($oSettings, 'fontMono', 'string');
 		} else {
-//			$oSettingsLocal->SetConf('Theme', $this->ValidateTheme($oConfig->Get('webmail', 'theme', 'Default')));
+//			$oSettingsLocal->SetConf('Theme', $this->ValidateTheme($oConfig->Get('webmail', 'theme', 'Gazellemail')));
 		}
 
 		$this->setSettingsFromParams($oSettings, 'MessagesPerPage', 'int', function ($iValue) {

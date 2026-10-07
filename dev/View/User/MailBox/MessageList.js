@@ -11,7 +11,7 @@ import { doc,
 	addShortcut, registerShortcut, formFieldFocused
 } from 'Common/Globals';
 import { arrayLength } from 'Common/Utils';
-import { computedPaginatorHelper, showMessageComposer, populateMessageBody, downloadZip, moveAction } from 'Common/UtilsUser';
+import { showMessageComposer, populateMessageBody, downloadZip, moveAction } from 'Common/UtilsUser';
 import { FileInfo, RFC822 } from 'Common/File';
 import { isFullscreen, toggleFullscreen } from 'Common/Fullscreen';
 
@@ -132,8 +132,6 @@ export class MailMessageList extends AbstractViewRight {
 				const value = MessagelistUserStore().search;
 				return value ? i18n('MESSAGE_LIST/SEARCH_RESULT_FOR', { SEARCH: value }) : ''
 			},
-
-			messageListPaginator: computedPaginatorHelper(MessagelistUserStore.page, MessagelistUserStore.pageCount),
 
 			checkAll: {
 				read: () => MessagelistUserStore.hasChecked(),
@@ -274,16 +272,21 @@ export class MailMessageList extends AbstractViewRight {
 
 		this.selector.on('UpOrDown', up => {
 			if (!MessagelistUserStore.hasChecked()) {
-				up = up ? -1 : 1;
-				const page = MessagelistUserStore.page() + up;
-				if (page > 0 && page <= MessagelistUserStore.pageCount()) {
-					if (SettingsUserStore.usePreviewPane() || MessageUserStore.message()) {
-						this.selector.iSelectNextHelper = up;
-					} else {
-						this.selector.iFocusedNextHelper = up;
-					}
-					this.selector.unselect();
-					this.gotoPage(page);
+				if (up) {
+					this.selector.scrollToTop();
+				} else {
+					// Endless scroll: reached the bottom, load the next chunk and focus its first message
+					const index = MessagelistUserStore().length;
+					MessagelistUserStore.loadMore(() => {
+						const message = MessagelistUserStore()[index];
+						if (message) {
+							this.selector.focusedItem(message);
+							if (SettingsUserStore.usePreviewPane() || MessageUserStore.message()) {
+								this.selector.selectedItem(message);
+							}
+							this.selector.scrollToFocused();
+						}
+					});
 				}
 			}
 		});
@@ -324,9 +327,10 @@ export class MailMessageList extends AbstractViewRight {
 			}
 		});
 
-		MessagelistUserStore.endHash.subscribe((() =>
-			this.selector.scrollToFocused()
-		).throttle(50));
+		MessagelistUserStore.endHash.subscribe((() => {
+			this.selector.scrollToFocused();
+			this.loadMoreIfNeeded();
+		}).throttle(50));
 
 		decorateKoCommands(this, {
 			downloadAttachCommand: canBeMovedHelper,
@@ -367,6 +371,22 @@ export class MailMessageList extends AbstractViewRight {
 	reload() {
 		MessagelistUserStore.isLoading()
 		|| MessagelistUserStore.reload(false, true);
+	}
+
+	/**
+	 * Endless scroll: load the next chunk when the list is scrolled near the bottom
+	 * or does not fill the viewport yet.
+	 */
+	loadMoreIfNeeded() {
+		const content = this.messageListContent;
+		if (!content || !content.clientHeight || MessagelistUserStore.loading() || !MessagelistUserStore.canLoadMore()) {
+			return;
+		}
+		const nearBottom = content.scrollTop + content.clientHeight >= content.scrollHeight - 150,
+			notFilled = content.scrollHeight <= content.clientHeight + 5;
+		if (nearBottom || notFilled) {
+			MessagelistUserStore.loadMore(() => this.loadMoreIfNeeded());
+		}
 	}
 
 	forwardCommand() {
@@ -613,7 +633,11 @@ export class MailMessageList extends AbstractViewRight {
 			}
 		}, 1);
 
+		this.messageListContent = b_content;
 		this.selector.init(b_content, ScopeMessageList);
+
+		// Endless scroll: load more messages when scrolling near the bottom
+		b_content.addEventListener('scroll', () => this.loadMoreIfNeeded(), { passive: true });
 
 		addEventsListeners(dom, {
 			click: event => {
@@ -625,9 +649,6 @@ export class MailMessageList extends AbstractViewRight {
 					if (eqs(event, '.messageList') && ScopeMessageView === AppUserStore.focusedState()) {
 						AppUserStore.focusedState(ScopeMessageList);
 					}
-
-					let el = eqs(event, '.e-paginator a');
-					el && this.gotoPage(ko.dataFor(el)?.value);
 
 					eqs(event, '.checkboxCheckAll') && this.checkAll(!this.checkAll());
 				}

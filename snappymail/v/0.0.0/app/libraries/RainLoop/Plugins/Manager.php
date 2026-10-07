@@ -155,13 +155,22 @@ class Manager
 
 	public function Hash() : string
 	{
-		return \md5(
-			\array_reduce($this->aPlugins, function($sResult, $oPlugin){
-				return $sResult . "|{$oPlugin->Hash()}";
-			}, APP_VERSION)
-			.implode('',$this->aJs[1]).implode('',$this->aJs[0])
-			.implode('',$this->aCss[1]).implode('',$this->aCss[0])
-		);
+		$aResult = array(APP_VERSION);
+		foreach ($this->aPlugins as $oPlugin) {
+			$aResult[] = $oPlugin->Hash();
+		}
+		// Include the modification time of each plugin CSS/JS file, so that
+		// changing an asset invalidates the cached compiled CSS/JS/lang.
+		// Without this the cache key only reflects file names and plugin
+		// versions, and edited CSS keeps being served from cache.
+		foreach (array($this->aCss, $this->aJs) as $aScopes) {
+			foreach ($aScopes as $aFiles) {
+				foreach ($aFiles as $sFile) {
+					$aResult[] = $sFile . '@' . (@\filemtime($sFile) ?: '');
+				}
+			}
+		}
+		return \md5(\implode('|', $aResult));
 	}
 
 	public function HaveJs(bool $bAdminScope = false) : bool

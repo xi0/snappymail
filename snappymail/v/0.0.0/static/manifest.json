@@ -1,23 +1,14 @@
 {
-	"name": "SnappyMail Webmail",
-	"short_name": "SnappyMail",
-	"description": "Simple, modern & fast web-based email client",
+	"name": "GazelleMail Webmail",
+	"short_name": "GazelleMail",
+	"description": "Dansk udviklet email-platform",
 	"display": "standalone",
 	"background_color": "white",
 	"theme_color": "black",
 	"icons": [{
-		"src": "apple-touch-icon.png",
-		"sizes": "64x64",
+		"src": "favicon.png",
+		"sizes": "96x96",
 		"type": "image/png"
-	}, {
-		"src": "android-icon.png",
-		"sizes": "192x192",
-		"type": "image/png"
-	}, {
-		"src": "logo-512.png",
-		"sizes": "512x512",
-		"type": "image/png",
-		"purpose": "any maskable"
 	}],
 	"start_url": "../../../../"
 }

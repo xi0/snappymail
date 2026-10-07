@@ -166,8 +166,8 @@ abstract class Service
 
 			$sFaviconUrl = (string) $oConfig->Get('webmail', 'favicon_url', '');
 
-			$sFaviconPngLink = $sFaviconUrl ?: Utils::WebStaticPath('apple-touch-icon.png');
-			$sAppleTouchLink = $sFaviconUrl ? '' : Utils::WebStaticPath('apple-touch-icon.png');
+			$sFaviconPngLink = $sFaviconUrl ?: Utils::WebStaticPath('favicon.png');
+			$sAppleTouchLink = $sFaviconUrl ? '' : Utils::WebStaticPath('favicon.png');
 
 			$oActions = Api::Actions();
 
@@ -178,7 +178,6 @@ abstract class Service
 				'{{BaseAppFaviconPngLinkTag}}' => $sFaviconPngLink ? '<link type="image/png" rel="shortcut icon" href="'.$sFaviconPngLink.'">' : '',
 				'{{BaseAppFaviconTouchLinkTag}}' => $sAppleTouchLink ? '<link type="image/png" rel="apple-touch-icon" href="'.$sAppleTouchLink.'">' : '',
 				'{{BaseAppManifestLink}}' => Utils::WebStaticPath('manifest.json'),
-				'{{BaseFavIconSvg}}' => $sFaviconUrl ? '' : Utils::WebStaticPath('favicon.svg'),
 				'{{LoadingDescriptionEsc}}' => \htmlspecialchars($oConfig->Get('webmail', 'loading_description', 'SnappyMail'), ENT_QUOTES|ENT_IGNORE, 'UTF-8'),
 				'{{BaseAppAdmin}}' => $bAdmin ? 1 : 0
 			);
@@ -191,7 +190,8 @@ abstract class Service
 					$sAppJsMin,
 					$sAppCssMin,
 					$aTemplateParameters,
-					APP_VERSION
+					APP_VERSION,
+					self::staticResourcesVersion($bAdmin, $sAppCssMin, $sAppJsMin)
 				))
 			);
 
@@ -249,6 +249,32 @@ abstract class Service
 		$oActions->BootEnd();
 
 		return true;
+	}
+
+	/**
+	 * Version stamp of the compiled templates and static assets (boot script/css and
+	 * main css). Any change to these files changes the stamp, which invalidates the
+	 * cached index page so templates and assets stay in sync.
+	 */
+	private static function staticResourcesVersion(bool $bAdmin, string $sAppCssMin, string $sAppJsMin) : string
+	{
+		$aFiles = array_merge(
+			\glob(APP_VERSION_ROOT_PATH.'app/templates/*.html') ?: array(),
+			\glob(APP_VERSION_ROOT_PATH.'app/templates/Views/*/*.html') ?: array(),
+			array(
+				APP_VERSION_ROOT_PATH.'static/css/'.($bAdmin ? 'admin' : 'app').$sAppCssMin.'.css',
+				APP_VERSION_ROOT_PATH.'static/css/boot'.$sAppCssMin.'.css',
+				APP_VERSION_ROOT_PATH.'static/js'.($sAppJsMin ? '/min' : '').'/boot'.$sAppJsMin.'.js'
+			)
+		);
+		$aResult = array();
+		foreach ($aFiles as $sFile) {
+			$iTime = @\filemtime($sFile);
+			if ($iTime) {
+				$aResult[] = $sFile . ':' . $iTime;
+			}
+		}
+		return \sha1(\implode('|', $aResult));
 	}
 
 	private static function setCSP(?string $sScriptNonce = null) : void

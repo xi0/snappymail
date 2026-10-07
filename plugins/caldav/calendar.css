@@ -116,17 +116,16 @@
 /* ==================================================================
    Calendar button + dialog (calendar-dialog.js)
    ================================================================== */
-.buttonCalendar {
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-}
+/* The calendar button sits next to `.buttonContacts` and must render exactly
+   like it. Do *not* switch it to `inline-flex`: a flex container derives its
+   height from its single 1em icon, whereas every other `.btn` gets its height
+   from `line-height: 2em`, which made this button visibly shorter than the
+   rest of the toolbar. Inheriting the plain `.btn` box model (inline-block)
+   keeps the icon centred and all toolbar buttons the same height.
 
-/* The core toolbar only reserves room for the contacts button (48px).
-   Reserve room for the extra calendar button as well. */
-#rl-left .buttonCompose {
-	width: calc(100% - 96px);
-}
+   The "New message" button spans its own full-width row (see
+   dev/Styles/User/FolderList.less), with the calendar/contacts icon buttons on
+   the row below, so no horizontal room needs to be reserved here anymore. */
 
 html.rl-left-panel-disabled .buttonCalendar {
 	display: none;
@@ -1201,181 +1200,181 @@ html.rl-left-panel-disabled #rl-left .buttonCompose {
 	}
 }
 
-@media (prefers-color-scheme: dark) {
-	.mailbux-cal-dialog .mc-window {
-		background: #171717;
-		color: #d8d8d8;
-	}
-	.mailbux-cal-dialog .mc-sidebar,
-	.mailbux-cal-dialog .mc-timecol,
-	.mailbux-cal-dialog .mc-month-head,
-	.mailbux-cal-dialog .mc-timecol-head,
-	.mailbux-cal-dialog .mc-daycol-head {
-		background: #212121;
-		border-color: #3b3b3b;
-	}
-	.mailbux-cal-dialog .mc-content {
-		background: #171717;
-	}
-	.mailbux-cal-dialog .mc-day,
-	.mailbux-cal-dialog .mc-month-grid {
-		background: #292929;
-	}
-	.mailbux-cal-dialog .mc-day {
-		background-color: #171717;
-	}
-	.mailbux-cal-dialog .mc-daycol-body {
-		background: repeating-linear-gradient(to bottom, #171717 0, #171717 43px, #2a2a2a 43px, #2a2a2a 44px);
-	}
-	.mailbux-cal-dialog .mc-daycol.mc-today .mc-daycol-body {
-		background: repeating-linear-gradient(to bottom, #16222b 0, #16222b 43px, #1e2f3b 43px, #1e2f3b 44px);
-	}
-	.mailbux-cal-dialog .mc-day.mc-other-month {
-		background: #1f1f1f;
-	}
-	.mailbux-cal-dialog .mc-timeslot {
-		border-color: #2a2a2a;
-	}
-	.mailbux-cal-dialog .mc-cal-item {
-		color: #d8d8d8;
-	}
-	.mailbux-cal-dialog .mc-cal-item:hover {
-		background: #2c2c2c;
-	}
-	.mailbux-cal-dialog .mc-form-window {
-		background: #1f1f1f;
-		color: #d8d8d8;
-		color-scheme: dark;
-	}
-	.mailbux-cal-dialog .mc-field-label {
-		color: #a8a8a8;
-	}
-	.mailbux-cal-dialog .mc-field input,
-	.mailbux-cal-dialog .mc-field select,
-	.mailbux-cal-dialog .mc-field textarea {
-		background: #2a2a2a;
-		border-color: #444;
-		color: #e6e6e6;
-	}
-	.mailbux-cal-dialog .mc-weekday {
-		background: #2c2c2c;
-		border-color: #444;
-		color: #ddd;
-	}
-	.mailbux-cal-dialog .mc-repeat-details {
-		border-top-color: #3b3b3b;
-	}
-	.mailbux-cal-dialog .mc-form-error {
-		color: #ff9b95;
-		background: #3a1f1d;
-		border-color: #5c2b28;
-	}
-	.mailbux-cal-dialog .mc-form-actions .mc-btn {
-		background: #2c2c2c;
-		border-color: #444;
-		color: #ddd;
-	}
-	.mailbux-cal-dialog .mc-form-actions .mc-btn:hover {
-		background: #383838;
-	}
-	.mailbux-cal-dialog .mc-form-actions .mc-btn-primary {
-		background: #00639a;
-		border-color: #00639a;
-		color: #fff;
-	}
-	.mailbux-cal-dialog .mc-form-actions .mc-btn-danger {
-		background: #1f1f1f;
-		border-color: #e9322d;
-		color: #ff9b95;
-	}
-	.mailbux-cal-dialog .mc-dtp .mc-dtp-cal-btn {
-		background: #2c2c2c;
-		border-color: #444;
-		color: #ddd;
-	}
-	.mailbux-cal-dialog .mc-dtp .mc-dtp-cal-btn:hover {
-		background: #383838;
-	}
-	.mailbux-cal-dialog .mc-dtp select.mc-dtp-hour,
-	.mailbux-cal-dialog .mc-dtp select.mc-dtp-minute {
-		background: #2a2a2a;
-		border-color: #444;
-		color: #e6e6e6;
-	}
-	.mailbux-cal-dialog .mc-dtp-time-sep {
-		color: #a8a8a8;
-	}
-	.mailbux-cal-dialog .mc-dtp-popup {
-		background: #1f1f1f;
-		color: #d8d8d8;
-		border-color: #3b3b3b;
-	}
-	.mailbux-cal-dialog .mc-dtp-pop-nav:hover,
-	.mailbux-cal-dialog .mc-dtp-pop-day:hover {
-		background: #2c2c2c;
-	}
-	.mailbux-cal-dialog .mc-dtp-pop-day.mc-other {
-		color: #6f6f6f;
-	}
-	.mailbux-cal-dialog .mc-dtp-pop-day.mc-today {
-		color: #4fb3e8;
-	}
-	.mailbux-cal-dialog .mc-dtp-pop-day.mc-selected {
-		background: #00639a;
-		color: #fff;
-	}
-	.mailbux-cal-dialog .mc-location-osm-attr {
-		color: #a8a8a8;
-	}
-	.mailbux-cal-dialog .mc-participant-tag {
-		background: #16222b;
-		border-color: #2a3b47;
-		color: #cfe3f0;
-	}
-	.mailbux-cal-dialog .mc-participant-add .mc-participant-pick {
-		background: #2c2c2c;
-		border-color: #444;
-		color: #ddd;
-	}
-	.mailbux-cal-dialog .mc-participant-add .mc-participant-pick:hover {
-		background: #383838;
-	}
-	.mailbux-cal-dialog .mc-participant-suggest {
-		background: #1f1f1f;
-		color: #d8d8d8;
-		border-color: #3b3b3b;
-	}
-	.mailbux-cal-dialog .mc-participant-suggest-item:hover,
-	.mailbux-cal-dialog .mc-participant-suggest-item:focus {
-		background: #2c2c2c;
-	}
-	.mailbux-cal-dialog .mc-participant-suggest-email {
-		color: #a8a8a8;
-	}
+/* Dark mode follows the main UI theme. SnappyMail sets data-theme-mode
+   ("light"/"dark") on <html> before first paint and toggles it from the
+   account menu and Settings -> Appearance, so we key off that attribute
+   instead of the operating system's prefers-color-scheme setting. */
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-window {
+	background: #171717;
+	color: #d8d8d8;
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-sidebar,
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-timecol,
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-month-head,
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-timecol-head,
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-daycol-head {
+	background: #212121;
+	border-color: #3b3b3b;
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-content {
+	background: #171717;
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-day,
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-month-grid {
+	background: #292929;
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-day {
+	background-color: #171717;
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-daycol-body {
+	background: repeating-linear-gradient(to bottom, #171717 0, #171717 43px, #2a2a2a 43px, #2a2a2a 44px);
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-daycol.mc-today .mc-daycol-body {
+	background: repeating-linear-gradient(to bottom, #16222b 0, #16222b 43px, #1e2f3b 43px, #1e2f3b 44px);
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-day.mc-other-month {
+	background: #1f1f1f;
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-timeslot {
+	border-color: #2a2a2a;
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-cal-item {
+	color: #d8d8d8;
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-cal-item:hover {
+	background: #2c2c2c;
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-form-window {
+	background: #1f1f1f;
+	color: #d8d8d8;
+	color-scheme: dark;
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-field-label {
+	color: #a8a8a8;
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-field input,
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-field select,
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-field textarea {
+	background: #2a2a2a;
+	border-color: #444;
+	color: #e6e6e6;
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-weekday {
+	background: #2c2c2c;
+	border-color: #444;
+	color: #ddd;
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-repeat-details {
+	border-top-color: #3b3b3b;
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-form-error {
+	color: #ff9b95;
+	background: #3a1f1d;
+	border-color: #5c2b28;
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-form-actions .mc-btn {
+	background: #2c2c2c;
+	border-color: #444;
+	color: #ddd;
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-form-actions .mc-btn:hover {
+	background: #383838;
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-form-actions .mc-btn-primary {
+	background: #00639a;
+	border-color: #00639a;
+	color: #fff;
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-form-actions .mc-btn-danger {
+	background: #1f1f1f;
+	border-color: #e9322d;
+	color: #ff9b95;
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-dtp .mc-dtp-cal-btn {
+	background: #2c2c2c;
+	border-color: #444;
+	color: #ddd;
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-dtp .mc-dtp-cal-btn:hover {
+	background: #383838;
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-dtp select.mc-dtp-hour,
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-dtp select.mc-dtp-minute {
+	background: #2a2a2a;
+	border-color: #444;
+	color: #e6e6e6;
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-dtp-time-sep {
+	color: #a8a8a8;
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-dtp-popup {
+	background: #1f1f1f;
+	color: #d8d8d8;
+	border-color: #3b3b3b;
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-dtp-pop-nav:hover,
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-dtp-pop-day:hover {
+	background: #2c2c2c;
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-dtp-pop-day.mc-other {
+	color: #6f6f6f;
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-dtp-pop-day.mc-today {
+	color: #4fb3e8;
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-dtp-pop-day.mc-selected {
+	background: #00639a;
+	color: #fff;
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-location-osm-attr {
+	color: #a8a8a8;
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-participant-tag {
+	background: #16222b;
+	border-color: #2a3b47;
+	color: #cfe3f0;
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-participant-add .mc-participant-pick {
+	background: #2c2c2c;
+	border-color: #444;
+	color: #ddd;
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-participant-add .mc-participant-pick:hover {
+	background: #383838;
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-participant-suggest {
+	background: #1f1f1f;
+	color: #d8d8d8;
+	border-color: #3b3b3b;
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-participant-suggest-item:hover,
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-participant-suggest-item:focus {
+	background: #2c2c2c;
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-participant-suggest-email {
+	color: #a8a8a8;
 }
 
-/* ---- Calendar invite dark mode ---- */
-@media (prefers-color-scheme: dark) {
-	#messageItem .bodySubHeader > .caldavInvite {
-		background: #16222b;
-		border-color: #2a3b47;
-		border-left-color: #4fb3e8;
-		color: #d8d8d8;
-	}
-	#messageItem .caldavInviteInfo td:first-child {
-		color: #a8a8a8;
-	}
-	#messageItem .caldavInviteStatus {
-		color: #81c784;
-	}
-	#messageItem .caldavInviteError {
-		color: #ff9b95;
-	}
-	#messageItem .caldavInviteMapLink,
-	#messageItem .caldavInviteMeeting {
-		color: #4fb3e8;
-	}
-	#messageItem .caldavInviteMapAttr {
-		color: #a8a8a8;
-	}
+/* ---- Calendar invite dark mode (follows the main UI theme) ---- */
+:root[data-theme-mode="dark"] #messageItem .bodySubHeader > .caldavInvite {
+	background: #16222b;
+	border-color: #2a3b47;
+	border-left-color: #4fb3e8;
+	color: #d8d8d8;
+}
+:root[data-theme-mode="dark"] #messageItem .caldavInviteInfo td:first-child {
+	color: #a8a8a8;
+}
+:root[data-theme-mode="dark"] #messageItem .caldavInviteStatus {
+	color: #81c784;
+}
+:root[data-theme-mode="dark"] #messageItem .caldavInviteError {
+	color: #ff9b95;
+}
+:root[data-theme-mode="dark"] #messageItem .caldavInviteMapLink,
+:root[data-theme-mode="dark"] #messageItem .caldavInviteMeeting {
+	color: #4fb3e8;
+}
+:root[data-theme-mode="dark"] #messageItem .caldavInviteMapAttr {
+	color: #a8a8a8;
 }

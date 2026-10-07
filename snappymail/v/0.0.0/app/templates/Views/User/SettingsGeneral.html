@@ -24,6 +24,16 @@
 		</div>
 	</div>
 	<div class="control-group">
+		<label data-i18n="SETTINGS_GENERAL/LABEL_APPEARANCE"></label>
+		<div>
+			<div class="sm-appearance" role="radiogroup">
+				<button type="button" data-sm-theme-set="light" data-i18n="SETTINGS_GENERAL/APPEARANCE_LIGHT"></button>
+				<button type="button" data-sm-theme-set="dark" data-i18n="SETTINGS_GENERAL/APPEARANCE_DARK"></button>
+				<button type="button" data-sm-theme-set="system" data-i18n="SETTINGS_GENERAL/APPEARANCE_SYSTEM"></button>
+			</div>
+		</div>
+	</div>
+	<div class="control-group">
 		<label data-i18n="SETTINGS_GENERAL/LAYOUT"></label>
 		<div data-bind="component: {
 			name: 'Select',
@@ -57,14 +67,6 @@
 	</div>
 
 	<div class="legend" data-i18n="SHORTCUTS_HELP/TAB_MESSAGE_LIST"></div>
-	<div class="control-group">
-		<label data-i18n="SETTINGS_GENERAL/MESSAGE_PER_PAGE"></label>
-		<div>
-			<input type="number" min="10" max="50" step="1" class="span1" data-bind="textInput: messagesPerPage">
-			&nbsp;
-			<span data-bind="saveTrigger: messagesPerPageTrigger"></span>
-		</div>
-	</div>
 	<div class="control-group" data-bind="visible: sortSupported">
 		<label data-i18n="MESSAGE_LIST/SORT"></label>
 		<select data-bind="options: sortOptions, optionsText: 'text', optionsValue: 'value', value: defaultSort"></select>
@@ -328,7 +330,7 @@
 				}"></div>
 				&nbsp;
 				<span data-bind="visible: !isDesktopNotificationAllowed()" style="color: #999" data-i18n="SETTINGS_GENERAL/CHROME_NOTIFICATION_DESC_DENIED"></span>
-				<span class="fontastic" data-bind="click: testSystemNotification" style="color:green;cursor:pointer">▶️</span>
+				<span class="icon-play" data-bind="click: testSystemNotification" style="color:green;cursor:pointer"></span>
 			</div>
 			<div>
 				<div style="display: inline-block;" data-bind="component: {
@@ -341,7 +343,7 @@
 				&nbsp;
 				<select data-bind="options: notificationSounds, value: notificationSound"></select>
 				&nbsp;
-				<span class="fontastic" data-bind="click: testSoundNotification" style="color:green;cursor:pointer">▶️</span>
+				<span class="icon-play" data-bind="click: testSoundNotification" style="color:green;cursor:pointer"></span>
 			</div>
 		</div>
 	</div>

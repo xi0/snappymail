@@ -10,7 +10,9 @@
 		"CANCEL": "Cancel",
 		"SEARCH": "Search",
 		"YES": "Yes",
-		"NO": "No"
+		"NO": "No",
+		"SWITCH_TO_DARK": "Dark mode",
+		"SWITCH_TO_LIGHT": "Light mode"
 	},
 	"LOGIN": {
 		"LABEL_LOGIN": "Login",
