@@ -6,8 +6,9 @@
   <h1>SnappyMail</h1>
   <br>
 
-[![github-actions](https://github.com/the-djmaze/snappymail/actions/workflows/docker.yml/badge.svg)](https://github.com/the-djmaze/snappymail/actions/workflows/docker.yml)
-[![docker-image-size](https://img.shields.io/docker/image-size/djmaze/snappymail/latest)](https://hub.docker.com/r/djmaze/snappymail/tags)
+  <p>
+	This fork is adapted to suit the needs of <a href="https://gazellemail.dk/">GazelleMail</a>.
+  </p>
 
   <p>
     Simple, modern, lightweight &amp; fast web-based email client.
