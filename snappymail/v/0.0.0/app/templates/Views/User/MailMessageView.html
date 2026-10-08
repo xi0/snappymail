@@ -142,9 +142,9 @@
 			</div>
 			<div class="informationShort">
 				<span class="from" data-bind="html: viewFromShort, attr:{ title: message().from }"></span>
-				<i data-bind="css: dkimIconClass, attr:{ 'data-icon': dkimIcon, title: dkimTitle }"></i>
-				<i data-bind="css: dmarcIconClass, attr:{ 'data-icon': dmarcIcon, title: dmarcTitle }"></i>
-				<i data-bind="css: spfIconClass, attr:{ 'data-icon': spfIcon, title: spfTitle }"></i>
+				<i data-bind="visible: !securityIndicatorsHidden(), css: dkimIconClass, attr:{ 'data-icon': dkimIcon, title: dkimTitle }"></i>
+				<i data-bind="visible: !securityIndicatorsHidden(), css: dmarcIconClass, attr:{ 'data-icon': dmarcIcon, title: dmarcTitle }"></i>
+				<i data-bind="visible: !securityIndicatorsHidden(), css: spfIconClass, attr:{ 'data-icon': spfIcon, title: spfTitle }"></i>
 			</div>
 		</div>
 		<div id="messageItem">

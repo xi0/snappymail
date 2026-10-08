@@ -67,7 +67,22 @@ const
 		message && MessagelistUserStore.setAction(message.folder, action, [message]);
 	},
 
-	fetchRaw = url => rl.fetch(url).then(response => response.ok && response.text());
+	fetchRaw = url => rl.fetch(url).then(response => response.ok && response.text()),
+
+	/**
+	 * Domains configured in this SnappyMail instance (see Actions\Accounts::getAccountData()).
+	 * Supports wildcard entries like "*.example.tld".
+	 * @param {string} domain
+	 * @returns {boolean}
+	 */
+	isLocalDomain = domain => {
+		const domains = Settings.get('localDomains') || [];
+		domain = (domain || '').toString().toLowerCase();
+		return !!domain && domains.some(item => {
+			item = (item || '').toString().toLowerCase();
+			return item.startsWith('*.') ? domain.endsWith(item.slice(1)) : domain === item;
+		});
+	};
 
 export class MailMessageView extends AbstractViewRight {
 	constructor() {
@@ -192,6 +207,12 @@ export class MailMessageView extends AbstractViewRight {
 //			hasInline: () => currentMessage()?.attachments().some(item => item.isLinked()),
 
 			canBeRepliedOrForwarded: () => !MessagelistUserStore.isDraftFolder() && this.messageVisible(),
+
+			// Hide the SPF/DKIM/DMARC indicators when the sender uses a locally configured domain
+			securityIndicatorsHidden: () => {
+				const from = currentMessage()?.from[0];
+				return !!(from && isLocalDomain(from.domain));
+			},
 
 			dkimIcon: () => {
 				switch (this.dkimData()[0]) {
