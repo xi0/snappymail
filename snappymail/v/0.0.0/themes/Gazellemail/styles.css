@@ -294,6 +294,17 @@ textarea:focus,
 select:focus-visible {
 	border-color: var(--input-focus-border-clr, #0066cc);
 }
+/*
+ * Options of a native <select> popup inherit the control's text colour, but the
+ * browser/OS paints the popup items with its own (system) background. In dark
+ * mode the inherited light text then becomes invisible until hovered, which made
+ * the HTML/Plain (and font) pickers in the signature editor look broken.
+ * Give options an explicit, theme-aware palette so they stay readable.
+ */
+select option {
+	background-color: var(--input-bg-clr, #fff);
+	color: var(--input-clr, #333);
+}
 
 /* ============================================================
  * Dropdown menus & dialogs
