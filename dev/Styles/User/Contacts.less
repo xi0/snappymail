@@ -36,18 +36,8 @@
 		}
 	}
 
-	.b-list-footer-toolbar {
-		height: 46px;
-		border-top: 1px solid var(--border-color, #ddd);
-
-		.footer-pager {
-			padding: 8px 10px 0 0;
-			text-align: var(--right, right);
-		}
-	}
-
 	.b-list-content {
-		height: calc(100% - 44px - 46px);
+		height: calc(100% - 44px);
 		overflow: hidden;
 		overflow-y: auto;
 		scroll-behavior: smooth;
@@ -65,6 +55,13 @@
 			padding: 60px 10px;
 			font-size: 171%;
 			line-height: 30px;
+		}
+
+		.listLoadMore {
+			color: #999;
+			text-align: center;
+			padding: 20px 10px;
+			font-size: 128%;
 		}
 	}
 

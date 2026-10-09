@@ -208,6 +208,9 @@ trait Accounts
 			'Email' => $oAccount->Email(),
 			'accountHash' => $oAccount->Hash(),
 			'mainEmail' => \RainLoop\Api::Actions()->getMainAccountFromToken()->Email(),
+			// Names of all domains configured in this SnappyMail instance.
+			// Used by the client to hide the SPF/DKIM/DMARC indicators for local mail.
+			'localDomains' => \array_column($this->DomainProvider()->GetList(), 'name'),
 			'contactsAllowed' => $this->AddressBookProvider($oAccount)->IsActive(),
 			'HideUnsubscribed' => false,
 			'defaultSort' => '',

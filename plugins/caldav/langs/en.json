@@ -2,6 +2,8 @@
 	"CALDAV": {
 		"CALENDAR": "Calendar",
 		"CALENDARS": "Calendars",
+		"SHOW_CALENDARS": "Show calendar list",
+		"HIDE_CALENDARS": "Hide calendar list",
 		"TODAY": "Today",
 		"PREVIOUS": "Previous",
 		"NEXT": "Next",
