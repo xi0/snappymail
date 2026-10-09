@@ -1,6 +1,7 @@
 // Mailbux CalDAV Auto - Calendar Button + Dialog
 // Adds a `buttonCalendar` button right of `.buttonContacts` in the main view
-// and opens a dialog with a multi-calendar selector and Day/Week/Month views.
+// and a `buttonCalendarMenu` entry in the top-right account dropdown, both of
+// which open a dialog with a multi-calendar selector and Day/Week/Month views.
 (() => {
 'use strict';
 
@@ -813,29 +814,40 @@ function setupButton() {
 	// Fallback: inject it right of the contacts button
 	if (!btn) {
 		const contacts = document.querySelector('.buttonContacts');
-		if (!contacts) {
-			return;
+		if (contacts) {
+			btn = document.createElement('a');
+			btn.href = '#';
+			btn.className = 'btn buttonCalendar fontastic';
+			btn.setAttribute('role', 'button');
+			btn.textContent = '📅';
+			contacts.insertAdjacentElement('afterend', btn);
 		}
-		btn = document.createElement('a');
-		btn.href = '#';
-		btn.className = 'btn buttonCalendar fontastic';
-		btn.setAttribute('role', 'button');
-		btn.textContent = '📅';
-		contacts.insertAdjacentElement('afterend', btn);
 	}
 
-	if (btn.dataset.calendarBound) {
-		return;
+	if (btn && !btn.dataset.calendarBound) {
+		btn.dataset.calendarBound = '1';
+		// Use the plugin's own key so the tooltip follows the language too
+		// (the core template ships this button with an English-only core key).
+		btn.title = t('CALDAV/CALENDAR', 'Calendar');
+		btn.setAttribute('data-i18n', '[title]CALDAV/CALENDAR');
+		btn.addEventListener('click', event => {
+			event.preventDefault();
+			openDialog();
+		});
 	}
-	btn.dataset.calendarBound = '1';
-	// Use the plugin's own key so the tooltip follows the language too
-	// (the core template ships this button with an English-only core key).
-	btn.title = t('CALDAV/CALENDAR', 'Calendar');
-	btn.setAttribute('data-i18n', '[title]CALDAV/CALENDAR');
-	btn.addEventListener('click', event => {
-		event.preventDefault();
-		openDialog();
-	});
+
+	// The "Calendar" entry in the top-right account dropdown (system menu).
+	// Unlike the toolbar button it shows its own label, so only the click and
+	// tooltip are wired here (the template keeps the localized text for it).
+	const menuEntry = document.querySelector('.buttonCalendarMenu');
+	if (menuEntry && !menuEntry.dataset.calendarBound) {
+		menuEntry.dataset.calendarBound = '1';
+		menuEntry.title = t('CALDAV/CALENDAR', 'Calendar');
+		menuEntry.addEventListener('click', event => {
+			event.preventDefault();
+			openDialog();
+		});
+	}
 }
 
 /* ------------------------------------------------------------------ dialog */
