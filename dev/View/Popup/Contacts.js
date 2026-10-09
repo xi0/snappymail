@@ -2,7 +2,7 @@ import { addObservablesTo, addComputablesTo } from 'External/ko';
 import { ComposeType } from 'Common/EnumsUser';
 import { registerShortcut } from 'Common/Globals';
 import { arrayLength, pInt } from 'Common/Utils';
-import { download, computedPaginatorHelper, showMessageComposer } from 'Common/UtilsUser';
+import { download, showMessageComposer } from 'Common/UtilsUser';
 
 import { Selector } from 'Common/Selector';
 import { serverRequestRaw, serverRequest } from 'Common/Links';
@@ -41,11 +41,16 @@ export class ContactsPopupView extends AbstractViewPopup {
 
 			importButton: null,
 
-			contactsPage: 1,
-
 			isSaving: false,
 
-			contact: null
+			contact: null,
+
+			// Endless scroll: server offset of the next chunk to load
+			listOffset: 0,
+			// Endless scroll: all contacts of the current list are loaded
+			endReached: false,
+			// Endless scroll: a next chunk is being loaded
+			loadingMore: false
 		});
 
 		this.contacts = ContactUserStore;
@@ -65,11 +70,6 @@ export class ContactsPopupView extends AbstractViewPopup {
 		this.selector.on('ItemGetUid', contact => contact ? contact.id() : '');
 
 		addComputablesTo(this, {
-			contactsPaginator: computedPaginatorHelper(
-				this.contactsPage,
-				() => Math.max(1, Math.ceil(this.contactsCount() / CONTACTS_PER_PAGE))
-			),
-
 			contactsCheckedOrSelected: () => {
 				const checked = ContactUserStore.filter(item => item.checked()),
 					selected = this.selectorContact();
@@ -77,6 +77,10 @@ export class ContactsPopupView extends AbstractViewPopup {
 			},
 
 			contactsSyncEnabled: () => ContactUserStore.allowSync() && ContactUserStore.syncMode(),
+
+			// Endless scroll: are there more contacts on the server to load?
+			canLoadMore: () => !this.endReached()
+				&& ContactUserStore().length < this.contactsCount(),
 
 			isBusy: () => ContactUserStore.syncing() | ContactUserStore.importing() | ContactUserStore.loading()
 				| this.isSaving()
@@ -103,27 +107,22 @@ export class ContactsPopupView extends AbstractViewPopup {
 		const contacts = this.contactsCheckedOrSelected();
 		if (contacts.length) {
 			let selectorContact = this.selectorContact(),
-				uids = [],
-				count = 0;
+				uids = [];
 			contacts.forEach(contact => {
 				uids.push(contact.id());
 				if (selectorContact && selectorContact.id() === contact.id()) {
 					this.selectorContact(selectorContact = null);
 				}
 				contact.deleted(true);
-				++count;
 			});
 			Remote.request('ContactsDelete',
 				(iError, oData) => {
 					if (iError) {
 						alert(oData?.message || getNotification(iError));
-					} else {
-						const page = this.contactsPage();
-						if (page > Math.max(1, Math.ceil((this.contactsCount() - count) / CONTACTS_PER_PAGE))) {
-							this.contactsPage(page - 1);
-						}
-//						contacts.forEach(contact => ContactUserStore.remove(contact));
 					}
+//					else {
+//						contacts.forEach(contact => ContactUserStore.remove(contact));
+//					}
 					this.reloadContactList();
 				}, {
 					uids: uids.join(',')
@@ -226,17 +225,7 @@ export class ContactsPopupView extends AbstractViewPopup {
 		} else fn();
 	}
 
-	/**
-	 * @param {boolean=} dropPagePosition = false
-	 */
-	reloadContactList(dropPagePosition = false) {
-		let offset = (this.contactsPage() - 1) * CONTACTS_PER_PAGE;
-
-		if (dropPagePosition) {
-			this.contactsPage(1);
-			offset = 0;
-		}
-
+	reloadContactList() {
 		ContactUserStore.loading(true);
 		Remote.abort('Contacts').request('Contacts',
 			(iError, data) => {
@@ -258,7 +247,73 @@ export class ContactsPopupView extends AbstractViewPopup {
 
 				ContactUserStore(list);
 
+				// Endless scroll: reset the load position for the freshly loaded list
+				this.listOffset(list.length);
+				this.endReached(ContactUserStore().length >= this.contactsCount());
+				this.loadingMore(false);
+
 				ContactUserStore.loading(false);
+
+				setTimeout(() => this.loadMoreIfNeeded(), 50);
+			},
+			{
+				Offset: 0,
+				Limit: CONTACTS_PER_PAGE,
+				Search: this.search()
+			}
+		);
+	}
+
+	/**
+	 * Endless scroll: loads the next chunk of contacts and appends it to the list.
+	 */
+	loadMore() {
+		if (ContactUserStore.loading()
+		 || ContactUserStore.importing()
+		 || !this.canLoadMore()) {
+			return;
+		}
+
+		const offset = this.listOffset();
+
+		this.loadingMore(true);
+		ContactUserStore.loading(true);
+
+		Remote.abort('Contacts').request('Contacts',
+			(iError, data) => {
+				this.loadingMore(false);
+				ContactUserStore.loading(false);
+
+				if (iError) {
+					return;
+				}
+
+				const result = data?.Result,
+					list = [];
+
+				if (result && arrayLength(result.List)) {
+					result.List.forEach(item => {
+						item = ContactModel.reviveFromJson(item);
+						item && list.push(item);
+					});
+					this.contactsCount(pInt(result.Count));
+				}
+
+				if (!list.length) {
+					this.endReached(true);
+					return;
+				}
+
+				this.listOffset(offset + list.length);
+				// Append to the same array so checked/focused states are preserved.
+				ContactUserStore.push(...list);
+
+				if (list.length < CONTACTS_PER_PAGE
+				 || ContactUserStore().length >= this.contactsCount()) {
+					this.endReached(true);
+				}
+
+				setTimeout(() => this.loadMoreIfNeeded(), 50);
 			},
 			{
 				Offset: offset,
@@ -268,8 +323,28 @@ export class ContactsPopupView extends AbstractViewPopup {
 		);
 	}
 
+	/**
+	 * Endless scroll: load the next chunk when the list is scrolled near the bottom
+	 * or does not fill the viewport yet.
+	 */
+	loadMoreIfNeeded() {
+		const content = this.listContent;
+		if (!content || !content.clientHeight || ContactUserStore.loading() || !this.canLoadMore()) {
+			return;
+		}
+		const nearBottom = content.scrollTop + content.clientHeight >= content.scrollHeight - 150,
+			notFilled = content.scrollHeight <= content.clientHeight + 5;
+		if (nearBottom || notFilled) {
+			this.loadMore();
+		}
+	}
+
 	onBuild(dom) {
-		this.selector.init(dom.querySelector('.b-list-content'), ScopeContacts);
+		this.listContent = dom.querySelector('.b-list-content');
+		this.selector.init(this.listContent, ScopeContacts);
+
+		// Endless scroll: load more contacts when scrolling near the bottom
+		this.listContent.addEventListener('scroll', () => this.loadMoreIfNeeded(), { passive: true });
 
 		registerShortcut('delete', '', ScopeContacts, () => {
 			this.deleteCommand();
@@ -279,16 +354,6 @@ export class ContactsPopupView extends AbstractViewPopup {
 		registerShortcut('c,w', '', ScopeContacts, () => {
 			this.newMessageCommand();
 			return false;
-		});
-
-		const self = this;
-
-		dom.addEventListener('click', event => {
-			let el = event.target.closestWithin('.e-paginator a', dom);
-			if (el && (el = pInt(ko.dataFor(el)?.value))) {
-				self.contactsPage(el);
-				self.reloadContactList();
-			}
 		});
 
 		// initUploader
@@ -337,6 +402,11 @@ export class ContactsPopupView extends AbstractViewPopup {
 		this.selectorContact(null);
 		this.search('');
 		this.contactsCount(0);
+
+		// Endless scroll: reset state for the next time the dialog opens
+		this.listOffset(0);
+		this.endReached(false);
+		this.loadingMore(false);
 
 		ContactUserStore([]);
 
