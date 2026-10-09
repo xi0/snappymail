@@ -2,6 +2,8 @@
 	"CALDAV": {
 		"CALENDAR": "Kalender",
 		"CALENDARS": "Kalendere",
+		"SHOW_CALENDARS": "Vis kalenderliste",
+		"HIDE_CALENDARS": "Skjul kalenderliste",
 		"TODAY": "I dag",
 		"PREVIOUS": "Forrige",
 		"NEXT": "Næste",

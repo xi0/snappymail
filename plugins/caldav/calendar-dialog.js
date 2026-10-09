@@ -70,6 +70,13 @@ const VIEW_STORAGE_KEY = 'caldav.view';
 const VIEW_DEFAULT = 'week';
 const VIEWS = ['day', 'week', 'month'];
 
+// The sidebar (calendar list) can be collapsed to give the calendar more room.
+// The choice is remembered per browser; on small screens the panel starts
+// collapsed when there is no stored preference yet.
+const SIDEBAR_STORAGE_KEY = 'caldav.sidebarCollapsed';
+// Must match the calendar's small-screen CSS breakpoint (see calendar.css).
+const SMALL_SCREEN_MAX = 720;
+
 const state = {
 	calendars: [],
 	selected: new Set(),
@@ -79,6 +86,7 @@ const state = {
 	view: loadSavedView(),
 	cursor: startOfDay(new Date()),
 	loading: false,
+	sidebarCollapsed: false,
 	error: ''
 };
 
@@ -113,6 +121,36 @@ function saveView(view) {
 		}
 	} catch (e) {
 		// Ignore storage errors; the view still works for the current session
+	}
+}
+
+// Whether the viewport matches the calendar's small-screen breakpoint.
+function isSmallScreen() {
+	return window.innerWidth <= SMALL_SCREEN_MAX;
+}
+
+// Stored sidebar preference: true/false, or null when the user has never
+// toggled it (so the screen-size default can still apply).
+function loadSavedSidebarCollapsed() {
+	try {
+		const value = window.localStorage.getItem(SIDEBAR_STORAGE_KEY);
+		if (value === '1') {
+			return true;
+		}
+		if (value === '0') {
+			return false;
+		}
+	} catch (e) {
+		// Storage unavailable (private mode / disabled) - use the screen default
+	}
+	return null;
+}
+
+function saveSidebarCollapsed(collapsed) {
+	try {
+		window.localStorage.setItem(SIDEBAR_STORAGE_KEY, collapsed ? '1' : '0');
+	} catch (e) {
+		// Ignore storage errors; the choice still applies for the current session
 	}
 }
 
@@ -861,6 +899,7 @@ function buildDialog() {
 		<div class="mc-overlay" data-cal-close></div>
 		<div class="mc-window">
 			<div class="mc-topbar">
+				<button type="button" class="mc-btn mc-sidebar-toggle" data-cal-sidebar-toggle aria-expanded="true" aria-label="Toggle calendar list">☰</button>
 				<div class="mc-title"><span class="mc-title-icon">📅</span><span class="mc-title-text"></span></div>
 				<div class="mc-nav">
 					<button type="button" class="mc-btn" data-cal-nav="prev" title="Previous">‹</button>
@@ -999,6 +1038,7 @@ function buildDialog() {
 	q('.mc-sidebar-title').textContent = t('CALDAV/CALENDARS', 'Calendars');
 	q('.mc-close').setAttribute('aria-label', t('CALDAV/CLOSE', 'Close'));
 	q('.mc-title-text').textContent = t('CALDAV/CALENDAR', 'Calendar');
+	q('[data-cal-sidebar-toggle]').setAttribute('aria-label', t('CALDAV/HIDE_CALENDARS', 'Hide calendar list'));
 
 	// "New event" button
 	q('[data-cal-new]').textContent = '+';
@@ -1146,6 +1186,11 @@ function buildDialog() {
 
 	dialogEl.addEventListener('click', event => {
 		const target = event.target;
+		// Collapse/expand the calendar list (side panel)
+		if (target.closest('[data-cal-sidebar-toggle]')) {
+			toggleSidebar();
+			return;
+		}
 		// Event form interactions take priority
 		if (target.closest('[data-cal-form-close]') || target.closest('[data-cal-cancel]')) {
 			closeEventForm();
@@ -1244,6 +1289,12 @@ function openDialog() {
 	if (!dialogEl) {
 		buildDialog();
 	}
+	// The calendar list starts collapsed on small screens unless the user has
+	// explicitly toggled it (their choice is remembered per browser).
+	const savedSidebar = loadSavedSidebarCollapsed();
+	state.sidebarCollapsed = (savedSidebar === null) ? isSmallScreen() : savedSidebar;
+	applySidebarState();
+
 	dialogEl.classList.add('show');
 	document.addEventListener('keydown', onKeydown, true);
 	state.error = '';
@@ -2117,6 +2168,32 @@ function eventTooltip(event) {
 		text += ' — ' + event.location;
 	}
 	return text;
+}
+
+/* --------------------------------------------------------------- sidebar */
+
+// Reflect the sidebar state on the dialog: hide/show the panel and update the
+// toggle button's label + aria-expanded state.
+function applySidebarState() {
+	if (!dialogEl) {
+		return;
+	}
+	const collapsed = !!state.sidebarCollapsed;
+	dialogEl.classList.toggle('mc-sidebar-collapsed', collapsed);
+	const btn = dialogEl.querySelector('[data-cal-sidebar-toggle]');
+	if (btn) {
+		btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+		btn.title = collapsed
+			? t('CALDAV/SHOW_CALENDARS', 'Show calendar list')
+			: t('CALDAV/HIDE_CALENDARS', 'Hide calendar list');
+		btn.setAttribute('aria-label', btn.title);
+	}
+}
+
+function toggleSidebar() {
+	state.sidebarCollapsed = !state.sidebarCollapsed;
+	saveSidebarCollapsed(state.sidebarCollapsed);
+	applySidebarState();
 }
 
 function renderSidebar() {

@@ -316,6 +316,26 @@ html.rl-left-panel-disabled #rl-left .buttonCompose {
 	padding: 6px 2px;
 }
 
+/* Collapsible calendar list: the toggle lives in the top bar and hides the
+   whole side panel so the calendar grid can use the full width. */
+.mailbux-cal-dialog .mc-sidebar-toggle {
+	font-size: 14px;
+	line-height: 1;
+	padding: 6px 9px;
+}
+
+.mailbux-cal-dialog.mc-sidebar-collapsed .mc-sidebar {
+	display: none;
+}
+
+/* Highlight the toggle while the panel is hidden (mirrors .mc-btn.active). */
+.mailbux-cal-dialog.mc-sidebar-collapsed .mc-sidebar-toggle {
+	background: #ffffff;
+	color: #00639a;
+	border-color: #ffffff;
+	font-weight: 600;
+}
+
 .mailbux-cal-dialog .mc-content {
 	flex: 1;
 	min-width: 0;
@@ -1155,6 +1175,13 @@ html.rl-left-panel-disabled #rl-left .buttonCompose {
 		height: 100vh;
 		max-height: none;
 		border-radius: 0;
+	}
+	/* The top bar carries several controls; let them wrap so the calendar
+	   list toggle never pushes the close button out of view on phones. */
+	.mailbux-cal-dialog .mc-topbar {
+		flex-wrap: wrap;
+		gap: 8px;
+		padding: 10px 12px;
 	}
 	.mailbux-cal-dialog .mc-sidebar {
 		width: 150px;
