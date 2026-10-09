@@ -1,6 +1,11 @@
 {
   "version": 0,
   "name": "SnappyMail",
-  "build_project_tool": null,
+  "build_project_tool": {
+    "command": "node_modules/.bin/gulp",
+    "blocking_files": [
+      "/node_modules/.bin/gulp"
+    ]
+  },
   "run_tests_tool": null
 }
