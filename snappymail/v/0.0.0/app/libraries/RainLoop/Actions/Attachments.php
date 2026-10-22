@@ -164,7 +164,7 @@ trait Attachments
 		} else if (!empty($aValues['folder']) && !empty($aValues['uid'])) {
 			$sFolder = (string) $aValues['folder'];
 			$iUid = (int) $aValues['uid'];
-			$sMimeIndex = (string) $aValues['mimeIndex'] ?: '';
+			$sMimeIndex = $this->validatePartId(isset($aValues['mimeIndex']) ? (string) $aValues['mimeIndex'] : '');
 			$oFileProvider = $this->FilesProvider();
 			$this->MailClient()->MessageMimeStream(
 				function ($rResource, $sContentType, $sFileName, $sMimeIndex = '')

@@ -15,6 +15,7 @@ trait Raw
 		if (!empty($aValues['folder']) && !empty($aValues['uid'])
 		 && !empty($aValues['accountHash']) && $aValues['accountHash'] === $oAccount->Hash()
 		) {
+			$sMimeIndex = $this->validatePartId(isset($aValues['mimeIndex']) ? (string) $aValues['mimeIndex'] : '');
 			$this->verifyCacheByKey($sRawKey);
 			$this->initMailClientConnection();
 			\header('Content-Type: text/plain');
@@ -27,7 +28,7 @@ trait Raw
 				},
 				(string) $aValues['folder'],
 				(int) $aValues['uid'],
-				isset($aValues['mimeIndex']) ? (string) $aValues['mimeIndex'] : ''
+				$sMimeIndex
 			);
 		}
 		return false;
@@ -116,7 +117,7 @@ trait Raw
 			$this->verifyCacheByKey($sRawKey);
 		}
 
-		$sMimeIndex = isset($aValues['mimeIndex']) ? (string) $aValues['mimeIndex'] : '';
+		$sMimeIndex = $this->validatePartId(isset($aValues['mimeIndex']) ? (string) $aValues['mimeIndex'] : '');
 		$sContentTypeIn = isset($aValues['mimeType']) ? (string) $aValues['mimeType'] : '';
 		$sFileNameIn = isset($aValues['fileName']) ? (string) $aValues['fileName'] : '';
 

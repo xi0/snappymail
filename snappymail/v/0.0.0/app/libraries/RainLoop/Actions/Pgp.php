@@ -135,7 +135,7 @@ trait Pgp
 				},
 				$this->GetActionParam('folder', ''),
 				(int) $this->GetActionParam('uid', ''),
-				$this->GetActionParam('partId', '')
+				$this->getValidPartId('partId')
 			);
 		}
 
@@ -301,8 +301,8 @@ trait Pgp
 		} else {
 			$sFolderName = $this->GetActionParam('folder', '');
 			$iUid = (int) $this->GetActionParam('uid', 0);
-			$sPartId = $this->GetActionParam('partId', '');
-			$sSigPartId = $this->GetActionParam('sigPartId', '');
+			$sPartId = $this->getValidPartId('partId');
+			$sSigPartId = $this->getValidPartId('sigPartId');
 //			$sMicAlg = $this->GetActionParam('micAlg', '');
 
 			$this->initMailClientConnection();

@@ -59,6 +59,24 @@ abstract class FetchType
 	// RFC 8970
 	const PREVIEW = 'PREVIEW';
 
+	/**
+	 * Validate an IMAP body part id / MIME section used inside BODY[...] or
+	 * BINARY[...] FETCH items.
+	 *
+	 * Only an empty string (the entire message), TEXT or dot separated
+	 * positive integers are valid. This prevents IMAP command injection
+	 * through values like "1] UID STORE 1:* +FLAGS (\Deleted)".
+	 */
+	public static function isValidPartId(string $sPartId, bool $allowEmpty = true) : bool
+	{
+		if ('' === $sPartId) {
+			return $allowEmpty;
+		}
+
+		return 'TEXT' === \strtoupper($sPartId)
+			|| 1 === \preg_match('/\\A(?:\\d+\\.)*\\d+\\z/', $sPartId);
+	}
+
 	public static function BuildBodyCustomHeaderRequest(array $aHeaders, bool $bPeek = true) : string
 	{
 		if (\count($aHeaders)) {

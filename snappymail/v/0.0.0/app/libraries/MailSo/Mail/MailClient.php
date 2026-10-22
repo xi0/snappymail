@@ -184,6 +184,7 @@ class MailClient
 	 * @param mixed $mCallback
 	 *
 	 * @throws \InvalidArgumentException
+	 * @throws \ValueError
 	 * @throws \MailSo\RuntimeException
 	 * @throws \MailSo\Net\Exceptions\*
 	 * @throws \MailSo\Imap\Exceptions\*
@@ -194,6 +195,11 @@ class MailClient
 			throw new \ValueError;
 		}
 
+		$sMimeIndex = \trim($sMimeIndex);
+		if (!FetchType::isValidPartId($sMimeIndex)) {
+			throw new \ValueError('Invalid MIME part id');
+		}
+
 		$this->oImapClient->FolderExamine($sFolderName);
 
 		$sFileName = '';
@@ -201,7 +207,6 @@ class MailClient
 		$sMailEncoding = '';
 		$sPeek = FetchType::BODY_PEEK;
 
-		$sMimeIndex = \trim($sMimeIndex);
 		$aFetchResponse = $this->oImapClient->Fetch(array(
 			\strlen($sMimeIndex)
 				? FetchType::BODY_PEEK.'['.$sMimeIndex.'.MIME]'

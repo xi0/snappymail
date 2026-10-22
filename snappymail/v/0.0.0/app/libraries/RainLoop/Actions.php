@@ -967,6 +967,33 @@ class Actions
 			$this->aCurrentActionParams[$sKey] : $mDefault;
 	}
 
+	/**
+	 * Validate a MIME part id before it is interpolated into an IMAP FETCH item.
+	 *
+	 * @throws Exceptions\ClientException
+	 */
+	protected function validatePartId(string $sPartId, bool $allowEmpty = true) : string
+	{
+		$sPartId = \trim($sPartId);
+		if (!\MailSo\Imap\Enumerations\FetchType::isValidPartId($sPartId, $allowEmpty)) {
+			throw new Exceptions\ClientException(
+				Notifications::InvalidInputArgument,
+				null,
+				'Invalid MIME part id'
+			);
+		}
+
+		return $sPartId;
+	}
+
+	/**
+	 * @throws Exceptions\ClientException
+	 */
+	protected function getValidPartId(string $sKey, string $sDefault = '') : string
+	{
+		return $this->validatePartId((string) $this->GetActionParam($sKey, $sDefault));
+	}
+
 	public function GetActionParams(): array
 	{
 		return $this->aCurrentActionParams;

@@ -501,7 +501,7 @@ trait Messages
 				$bOpaque = !$oMessage->smimeSigned['detached'];
 				$sBody = $this->ImapClient()->FetchMessagePart(
 					$oMessage->Uid,
-					$oMessage->smimeSigned['partId']
+					$this->validatePartId((string) $oMessage->smimeSigned['partId'], false)
 				);
 				$result = (new \SnappyMail\SMime\OpenSSL(''))->verify($sBody, null, $bOpaque);
 				if ($result) {
@@ -518,8 +518,8 @@ trait Messages
 				$GPG = $this->GnuPG();
 				if ($GPG) {
 					if ($oMessage->pgpSigned['sigPartId']) {
-						$sPartId = $oMessage->pgpSigned['partId'];
-						$sSigPartId = $oMessage->pgpSigned['sigPartId'];
+						$sPartId = $this->validatePartId((string) $oMessage->pgpSigned['partId'], false);
+						$sSigPartId = $this->validatePartId((string) $oMessage->pgpSigned['sigPartId'], false);
 						$aParts = [
 							FetchType::BODY_PEEK.'['.$sPartId.']',
 							// An empty section specification refers to the entire message, including the header.
@@ -720,7 +720,7 @@ trait Messages
 					if ($aValues = $this->decodeRawKey($sAttachment)) {
 						$sFolder = isset($aValues['folder']) ? (string) $aValues['folder'] : '';
 						$iUid = isset($aValues['uid']) ? (int) $aValues['uid'] : 0;
-						$sMimeIndex = isset($aValues['mimeIndex']) ? (string) $aValues['mimeIndex'] : '';
+						$sMimeIndex = $this->validatePartId(isset($aValues['mimeIndex']) ? (string) $aValues['mimeIndex'] : '');
 
 						$sTempName = \sha1($sAttachment);
 						if (!$oFilesProvider->FileExists($oAccount, $sTempName)) {

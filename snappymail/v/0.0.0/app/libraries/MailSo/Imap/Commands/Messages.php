@@ -134,6 +134,9 @@ trait Messages
 
 	public function FetchMessagePart(int $iUid, string $sPartId) : string
 	{
+		if (!FetchType::isValidPartId($sPartId, false)) {
+			throw new \ValueError('Invalid MIME part id');
+		}
 		if ('TEXT' === $sPartId) {
 			$oFetchResponse = $this->Fetch([
 				FetchType::BODY_PEEK.'['.$sPartId.']',

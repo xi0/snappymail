@@ -84,7 +84,7 @@ trait SMime
 	{
 		$sFolderName = $this->GetActionParam('folder', '');
 		$iUid = (int) $this->GetActionParam('uid', 0);
-		$sPartId = $this->GetActionParam('partId', '');
+		$sPartId = $this->getValidPartId('partId');
 		$sCertificate = $this->GetActionParam('certificate', '');
 		$sPrivateKey = $this->GetActionParam('privateKey', '');
 		$oPassphrase = new \SnappyMail\SensitiveString($this->GetActionParam('passphrase', ''));
@@ -137,7 +137,8 @@ trait SMime
 	public function DoSMimeVerifyMessage() : array
 	{
 		$sBody = $this->GetActionParam('bodyPart', '');
-		$sPartId = $this->GetActionParam('partId', '');
+		$sPartId = $this->getValidPartId('partId');
+		$sSigPartId = $this->getValidPartId('sigPartId');
 		$bDetached = !empty($this->GetActionParam('detached', 0));
 		if (!$sBody && $sPartId) {
 			$iUid = (int) $this->GetActionParam('uid', 0);
@@ -152,7 +153,7 @@ trait SMime
 
 		// Import the certificates automatically
 		$sBody = $this->GetActionParam('sigPart', '');
-		$sPartId = $this->GetActionParam('sigPartId', '') ?: $sPartId;
+		$sPartId = $sSigPartId ?: $sPartId;
 		if (!$sBody && $sPartId && $oImapClient) {
 			$sBody = $oImapClient->Fetch(
 				[FetchType::BODY_PEEK.'['.$sPartId.']'],
