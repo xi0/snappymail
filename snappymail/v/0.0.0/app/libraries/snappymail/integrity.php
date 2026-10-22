@@ -27,7 +27,13 @@ abstract class Integrity
 		echo '<div>'.APP_VERSION_ROOT_PATH.'themes directory permissions: ' . substr(sprintf('%o', fileperms(APP_VERSION_ROOT_PATH . 'themes')), -4) . '</div>';
 */
 
-		$uri = (isset($_SERVER['HTTPS']) ? 'https' : 'http') . '://' . $_SERVER['HTTP_HOST']
+		$sHost = \MailSo\Base\Http::SingletonInstance()->GetHost(false);
+		if (!\strlen($sHost)) {
+			echo '<p style="color: red">Invalid Host header</p>';
+			return;
+		}
+
+		$uri = (isset($_SERVER['HTTPS']) ? 'https' : 'http') . '://' . $sHost
 			. \RainLoop\Utils::WebVersionPath();
 		$HTTP = \SnappyMail\HTTP\Request::factory();
 		$files = [

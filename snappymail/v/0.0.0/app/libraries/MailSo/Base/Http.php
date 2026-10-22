@@ -112,28 +112,97 @@ class Http
 	public function GetHost(bool $bWithoutWWW = true, bool $bWithoutPort = false) : string
 	{
 		$sHost = static::GetServer('HTTP_HOST', '');
+		if (!\is_string($sHost)) {
+			$sHost = '';
+		}
 		if (!\strlen($sHost)) {
 			$sName = static::GetServer('SERVER_NAME', '');
+			$sName = \is_string($sName) ? $sName : '';
 			$iPort = (int) static::GetServer('SERVER_PORT', 80);
 			$sHost = (\in_array($iPort, array(80, 433))) ? $sName : $sName.':'.$iPort;
 		}
+
+		// HTTP_HOST is client controlled: only accept a valid hostname/IP with
+		// optional port, otherwise fall back to SERVER_NAME. This prevents Host
+		// header injection into logs, redirects and outgoing requests.
+		$sValidHost = static::getValidHost($sHost);
+		if (!\strlen($sValidHost)) {
+			$sValidHost = static::getValidHost(static::GetServer('SERVER_NAME', ''));
+		}
+		$sHost = $sValidHost;
 
 		if ($bWithoutWWW && \str_starts_with($sHost, 'www.')) {
 			$sHost = \substr($sHost, 4);
 		}
 
-		return $bWithoutPort ? \preg_replace('/:\d+$/', '', $sHost) : $sHost;
+		return $bWithoutPort
+			? \preg_replace('/^(\[[0-9a-f:.]+\]|[^:]+):\d+$/i', '$1', $sHost)
+			: $sHost;
+	}
+
+	/**
+	 * Returns a syntactically valid hostname/IP with optional port, or ''.
+	 *
+	 * @param mixed $mHost
+	 */
+	private static function getValidHost($mHost) : string
+	{
+		if (!\is_string($mHost)) {
+			return '';
+		}
+		$sHost = \trim($mHost);
+		if (!\strlen($sHost) || \str_contains($sHost, '..')) {
+			return '';
+		}
+
+		if (Utils::ValidateIP($sHost)) {
+			return $sHost;
+		}
+
+		// Bracketed IPv6 address, optionally followed by a port.
+		if (\preg_match('/^\[([0-9a-f:.]+)\](?::\d{1,5})?$/iD', $sHost, $aMatch)
+		 && Utils::ValidateIP($aMatch[1])) {
+			return $sHost;
+		}
+
+		// Hostname, optionally followed by a port.
+		if (\preg_match('/^[a-z0-9_](?:[a-z0-9_.-]*[a-z0-9_])?\.?(?::\d{1,5})?$/iD', $sHost)) {
+			return $sHost;
+		}
+
+		return '';
 	}
 
 	public function GetClientIp(bool $bCheckProxy = false) : string
 	{
-		if ($bCheckProxy && null !== static::GetServer('HTTP_CLIENT_IP', null)) {
-			return static::GetServer('HTTP_CLIENT_IP', '');
+		if ($bCheckProxy) {
+			foreach (array('HTTP_CLIENT_IP', 'HTTP_X_FORWARDED_FOR') as $sKey) {
+				$sIp = static::getValidIp(static::GetServer($sKey, ''));
+				if (\strlen($sIp)) {
+					return $sIp;
+				}
+			}
 		}
-		if ($bCheckProxy && null !== static::GetServer('HTTP_X_FORWARDED_FOR', null)) {
-			return static::GetServer('HTTP_X_FORWARDED_FOR', '');
+		return static::getValidIp(static::GetServer('REMOTE_ADDR', ''));
+	}
+
+	/**
+	 * Returns the first valid IP from a comma separated header value, or ''.
+	 *
+	 * @param mixed $mValue
+	 */
+	private static function getValidIp($mValue) : string
+	{
+		if (!\is_string($mValue)) {
+			return '';
 		}
-		return static::GetServer('REMOTE_ADDR', '');
+		foreach (\explode(',', $mValue) as $sIp) {
+			$sIp = \trim($sIp);
+			if (Utils::ValidateIP($sIp)) {
+				return $sIp;
+			}
+		}
+		return '';
 	}
 
 	public static function checkETag(string $ETag) : void

@@ -49,6 +49,15 @@ if (defined('MULTIDOMAIN')) {
 	$sPrivateDataFolderInternalName = strtolower(trim(empty($_SERVER['HTTP_HOST']) ? (empty($_SERVER['SERVER_NAME']) ? '' : $_SERVER['SERVER_NAME']) : $_SERVER['HTTP_HOST']));
 	$sPrivateDataFolderInternalName = 'www.' === substr($sPrivateDataFolderInternalName, 0, 4) ? substr($sPrivateDataFolderInternalName, 4) : $sPrivateDataFolderInternalName;
 	$sPrivateDataFolderInternalName = preg_replace('/^.+@/', '', preg_replace('/(.+\\..+):[\d]+$/', '$1', $sPrivateDataFolderInternalName));
+	// Strip a port from hostnames and bracketed IPv6 addresses.
+	$sPrivateDataFolderInternalName = preg_replace('/^(\[[0-9a-f:.]+\]|[^:]+):\d+$/i', '$1', $sPrivateDataFolderInternalName);
+	$sPrivateDataFolderInternalName = in_array($sPrivateDataFolderInternalName, array('', '127.0.0.1', '::1', '[::1]')) ? 'localhost' : $sPrivateDataFolderInternalName;
+	// The Host header is client controlled. Only allow characters valid in a
+	// hostname and collapse dots so it can not inject path segments or use
+	// "."/".." to traverse out of the data folder.
+	$sPrivateDataFolderInternalName = preg_replace('/[^a-z0-9._-]/', '', $sPrivateDataFolderInternalName);
+	$sPrivateDataFolderInternalName = trim(preg_replace('/\.{2,}/', '.', $sPrivateDataFolderInternalName), '.');
+	$sPrivateDataFolderInternalName = trim(substr($sPrivateDataFolderInternalName, 0, 253), '.');
 	$sPrivateDataFolderInternalName = in_array($sPrivateDataFolderInternalName, array('', '127.0.0.1', '::1')) ? 'localhost' : $sPrivateDataFolderInternalName;
 }
 define('APP_PRIVATE_DATA_NAME', $sPrivateDataFolderInternalName ?: '_default_');

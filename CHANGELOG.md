@@ -22,6 +22,13 @@
     reserved IP ranges (IPv4 and IPv6) are never contacted, including the hosts
     returned by DNS SRV records
   - redirects are no longer followed and responses are capped at 1 MB
+- Client IP and Host header trust hardening:
+  - `MailSo\Base\Http::GetClientIp()` now returns only a single validated IP
+    instead of the raw forwarded header value
+  - `MailSo\Base\Http::GetHost()` and the `MULTIDOMAIN` private data folder
+    reject malformed/injected Host values
+  - the `set-remote-addr` extension only trusts `X-Forwarded-For` /
+    `Client-IP` when `REMOTE_ADDR` is in its configured trusted proxy list
 
 ### Fixed
 - Gazellemail theme used non-existent CSS variable names (`--btn-bg-color`,
