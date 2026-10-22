@@ -641,13 +641,19 @@ class MailClient
 		$bUseSort = $oParams->bUseSort && $this->oImapClient->hasCapability('SORT');
 		$aSortTypes = [];
 		if ($bUseSort) {
-			if ($oParams->sSort) {
-				// TODO: $oParams->sortValid($this->oImapClient);
-				$aSortTypes[] = $oParams->sSort;
+			// Strict whitelist: never pass the user supplied $oParams->sSort to the IMAP server
+			if ($oParams->sSort && !$oParams->sortValid($this->oImapClient)) {
+				$this->logWrite('Invalid SORT criteria', \LOG_ERR);
+				throw new \MailSo\RuntimeException('Invalid SORT criteria');
 			}
-			if (!\str_contains($oParams->sSort, 'DATE')) {
+			$sSort = $oParams->sortCriteria($this->oImapClient);
+			if (\strlen($sSort)) {
+				$aSortTypes[] = $sSort;
+			}
+			if (!\str_contains($sSort, \MailSo\Imap\Enumerations\SortCriteria::DATE)) {
 				// Always also sort DATE descending when DATE is not defined
-				$aSortTypes[] = 'REVERSE DATE';
+				$aSortTypes[] = \MailSo\Imap\Enumerations\SortCriteria::REVERSE
+					. ' ' . \MailSo\Imap\Enumerations\SortCriteria::DATE;
 			}
 		}
 		$oParams->sSort = \implode(' ', $aSortTypes);
@@ -759,6 +765,13 @@ class MailClient
 		} else if (999 < $oParams->iLimit) {
 			$oParams->iLimit = 50;
 		}
+
+		// Strict whitelist, prevents IMAP command injection through the sort criteria
+		if (!$oParams->sortValid($this->oImapClient)) {
+			throw new \ValueError('Invalid SORT criteria');
+		}
+		// Only the normalized enum based criteria are used from here on
+		$oParams->sSort = $oParams->sortCriteria($this->oImapClient);
 
 		$sSearch = \trim($oParams->sSearch);
 

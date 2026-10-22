@@ -63,6 +63,16 @@ trait Messages
 			throw new ClientException(Notifications::CantGetMessageList);
 		}
 
+		// Strict whitelist for the sort criteria, prevents IMAP command injection
+		// (see \MailSo\Imap\Enumerations\SortCriteria).
+		// The capability dependent SORT=DISPLAY criteria are additionally checked
+		// in \MailSo\Mail\MailClient::MessageList()
+		if (!\MailSo\Imap\Enumerations\SortCriteria::validate($oParams->sSort, true)) {
+			throw new ClientException(Notifications::InvalidInputArgument, null, 'Invalid sort criteria');
+		}
+		// Only the normalized enum based criteria are used from here on
+		$oParams->sSort = \MailSo\Imap\Enumerations\SortCriteria::normalize($oParams->sSort, true);
+
 		$oAccount = $this->initMailClientConnection();
 
 		$oSettingsLocal = $this->SettingsProvider(true)->Load($oAccount);

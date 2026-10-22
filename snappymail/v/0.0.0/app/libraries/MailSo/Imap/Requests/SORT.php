@@ -69,8 +69,22 @@ class SORT extends Request
 
 	public function SendRequest() : string
 	{
-		if (!$this->aSortTypes) {
-			$this->oImapClient->writeLogException(new \MailSo\RuntimeException('SortTypes are missing'), \LOG_ERR);
+		// The sort criteria are placed unquoted in the (parenthesized) command,
+		// so only the whitelisted \MailSo\Imap\Enumerations\SortCriteria values
+		// may be used. This prevents IMAP command injection through them.
+		$bDisplaySort = $this->oImapClient->hasCapability('SORT=DISPLAY');
+		$aSortTypes = array();
+		foreach ($this->aSortTypes as $sSortType) {
+			$sSortType = \MailSo\Imap\Enumerations\SortCriteria::normalize((string) $sSortType, $bDisplaySort);
+			if (!\strlen($sSortType)) {
+				$this->oImapClient->logWrite('Invalid SortTypes', \LOG_ERR);
+				throw new \MailSo\RuntimeException('Invalid SortTypes');
+			}
+			$aSortTypes[] = $sSortType;
+		}
+		if (!$aSortTypes) {
+			$this->oImapClient->logWrite('SortTypes are missing', \LOG_ERR);
+			throw new \MailSo\RuntimeException('SortTypes are missing');
 		}
 
 		$aRequest = array();
@@ -91,7 +105,7 @@ class SORT extends Request
 			$aRequest[] = $this->aReturn;
 		}
 
-		$aRequest[] = $this->aSortTypes;
+		$aRequest[] = $aSortTypes;
 
 		$aRequest[] = 'UTF-8'; // \strtoupper(\MailSo\Base\Enumerations\Charset::UTF_8)
 
