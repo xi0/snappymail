@@ -178,7 +178,10 @@ class SearchCriterias
 				}
 			} else {
 				if (isset($aLines['IN']) && $oImapClient->hasCapability('MULTISEARCH') && \in_array($aLines['IN'], ['subtree','subtree-one','mailboxes'])) {
-					$aCriteriasResult[] = "IN ({$aLines['IN']} \"{$sFolderName}\")";
+					// escapeSearchString() already returns a quoted string, so it must not be quoted again
+					$aCriteriasResult[] = "IN ({$aLines['IN']} "
+						. static::escapeSearchString($oImapClient, $sFolderName)
+						. ')';
 				}
 
 				if (isset($aLines['EMAIL'])) {
@@ -236,10 +239,13 @@ class SearchCriterias
 
 						case 'HEADER':
 							$aValue = \explode(' ', $sRawValue, 2);
-							$aCriteriasResult[] = 'HEADER '
-								. static::escapeSearchString($oImapClient, $aValue[0])
-								. ' '
-								. static::escapeSearchString($oImapClient, $aValue[1]);
+							// A missing search string is valid (matches every message with the header)
+							if ('' !== \trim($aValue[0])) {
+								$aCriteriasResult[] = 'HEADER '
+									. static::escapeSearchString($oImapClient, $aValue[0])
+									. ' '
+									. static::escapeSearchString($oImapClient, $aValue[1] ?? '');
+							}
 							break;
 
 						case 'FLAGGED':
@@ -322,25 +328,28 @@ class SearchCriterias
 							$bUseCache = false;
 							break;
 						case 'OLDER_THAN':
-							$oDate = (new \DateTime())->sub(new \DateInterval("P{$sRawValue}"));
-							if ($oImapClient->hasCapability('WITHIN')) {
-								$aCriteriasResult[] = 'OLDER';
-								$aCriteriasResult[] = \time() - $oDate->getTimestamp();
-							} else {
-								$aCriteriasResult[] = 'BEFORE';
-								$aCriteriasResult[] = $oDate->format('j-M-Y');
+							$oInterval = static::parseDateInterval($sRawValue);
+							if ($oInterval) {
+								$oDate = (new \DateTime())->sub($oInterval);
+								if ($oImapClient->hasCapability('WITHIN')) {
+									$aCriteriasResult[] = 'OLDER';
+									$aCriteriasResult[] = \time() - $oDate->getTimestamp();
+								} else {
+									$aCriteriasResult[] = 'BEFORE';
+									$aCriteriasResult[] = $oDate->format('j-M-Y');
+								}
 							}
 							break;
 						case 'NEWER_THAN':
-							$oDate = (new \DateTime())->sub(new \DateInterval("P{$sRawValue}"));
-							if ($oImapClient->hasCapability('WITHIN')) {
-								$aCriteriasResult[] = 'YOUNGER';
-								$aCriteriasResult[] = \time() - $oDate->getTimestamp();
-							} else {
-								$iTimeFilter = \max(
-									$iTimeFilter,
-									(new \DateTime())->sub(new \DateInterval("P{$sRawValue}"))->getTimestamp()
-								);
+							$oInterval = static::parseDateInterval($sRawValue);
+							if ($oInterval) {
+								$oDate = (new \DateTime())->sub($oInterval);
+								if ($oImapClient->hasCapability('WITHIN')) {
+									$aCriteriasResult[] = 'YOUNGER';
+									$aCriteriasResult[] = \time() - $oDate->getTimestamp();
+								} else {
+									$iTimeFilter = \max($iTimeFilter, $oDate->getTimestamp());
+								}
 							}
 							break;
 					}
@@ -397,6 +406,26 @@ class SearchCriterias
 				$iResult *= 1024;
 		}
 		return $iResult;
+	}
+
+	/**
+	 * Parse the Gmail-like duration used by older_than:/newer_than: (e.g. 1d, 2w, 3m, 1y)
+	 * and reject anything that is not a valid \DateInterval, so malformed input can not
+	 * throw an uncaught exception.
+	 */
+	private static function parseDateInterval(string $sInterval) : ?\DateInterval
+	{
+		$sInterval = \strtoupper(\trim($sInterval));
+		if (\preg_match('/^(?:\d+[YMWD]|P(?:\d+[YMWD])*(?:T(?:\d+[HMS])+)?)$/', $sInterval)) {
+			if ('P' !== $sInterval[0]) {
+				$sInterval = 'P' . $sInterval;
+			}
+			try {
+				return new \DateInterval($sInterval);
+			} catch (\Throwable $e) {
+			}
+		}
+		return null;
 	}
 
 	/**
