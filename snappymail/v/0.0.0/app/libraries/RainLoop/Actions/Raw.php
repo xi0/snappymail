@@ -11,10 +11,8 @@ trait Raw
 	{
 		$oAccount = $this->getAccountFromToken();
 		$sRawKey = $this->GetActionParam('RawKey', '');
-		$aValues = $this->decodeRawKey($sRawKey);
-		if (!empty($aValues['folder']) && !empty($aValues['uid'])
-		 && !empty($aValues['accountHash']) && $aValues['accountHash'] === $oAccount->Hash()
-		) {
+		$aValues = $this->decodeRawKey($sRawKey, $oAccount);
+		if (!empty($aValues['folder']) && !empty($aValues['uid'])) {
 			$sMimeIndex = $this->validatePartId(isset($aValues['mimeIndex']) ? (string) $aValues['mimeIndex'] : '');
 			$this->verifyCacheByKey($sRawKey);
 			$this->initMailClientConnection();
@@ -98,8 +96,8 @@ trait Raw
 		$sRawKey = (string) $this->GetActionParam('RawKey', '');
 
 		$oAccount = $this->getAccountFromToken();
-		$aValues = $this->decodeRawKey($sRawKey);
-		if (empty($aValues['accountHash']) || $aValues['accountHash'] !== $oAccount->Hash()) {
+		$aValues = $this->decodeRawKey($sRawKey, $oAccount);
+		if (!$aValues) {
 			return false;
 		}
 

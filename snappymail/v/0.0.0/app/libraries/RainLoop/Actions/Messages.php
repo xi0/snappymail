@@ -22,6 +22,8 @@ trait Messages
 //		throw new ClientException(Notifications::CantGetMessageList);
 		$oParams = new \MailSo\Mail\MessageListParams;
 
+		// This RawKey is only a GET cache-key: it has no accountHash and merely
+		// selects a folder/list within the current (token authenticated) account.
 		$aValues = $this->decodeRawKey($this->GetActionParam('RawKey', ''));
 		$sHash = '';
 		if ($aValues && 6 < \count($aValues)) {
@@ -474,7 +476,9 @@ trait Messages
 	 */
 	public function DoMessage() : array
 	{
-		$aValues = $this->decodeRawKey((string) $this->GetActionParam('RawKey', ''));
+		$oAccount = $this->initMailClientConnection();
+
+		$aValues = $this->decodeRawKey((string) $this->GetActionParam('RawKey', ''), $oAccount);
 		if ($aValues && 2 <= \count($aValues)) {
 			$sFolder = (string) $aValues[0];
 			$iUid = (int) $aValues[1];
@@ -484,8 +488,6 @@ trait Messages
 			$sFolder = $this->GetActionParam('folder', '');
 			$iUid = (int) $this->GetActionParam('uid', 0);
 		}
-
-		$oAccount = $this->initMailClientConnection();
 
 		try
 		{
@@ -717,7 +719,7 @@ trait Messages
 				$oFilesProvider = $this->FilesProvider();
 				foreach ($aAttachments as $mIndex => $sAttachment) {
 					$aAttachments[$mIndex] = false;
-					if ($aValues = $this->decodeRawKey($sAttachment)) {
+					if ($aValues = $this->decodeRawKey($sAttachment, $oAccount)) {
 						$sFolder = isset($aValues['folder']) ? (string) $aValues['folder'] : '';
 						$iUid = isset($aValues['uid']) ? (int) $aValues['uid'] : 0;
 						$sMimeIndex = $this->validatePartId(isset($aValues['mimeIndex']) ? (string) $aValues['mimeIndex'] : '');

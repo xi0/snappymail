@@ -936,15 +936,40 @@ class Actions
 		return \MailSo\Base\Utils::UrlSafeBase64Encode(\json_encode($aValues));
 	}
 
-	public function decodeRawKey(string $sRawKey): array
+	/**
+	 * Decode a RawKey.
+	 *
+	 * The RawKey is an unsigned, client controlled base64 encoded JSON value.
+	 * Whenever it is used to access account data the embedded account hash MUST
+	 * be validated against the current account, otherwise arbitrary folder/uid
+	 * and file identifiers from the blob would be trusted.
+	 *
+	 * @param string $sRawKey
+	 * @param Model\Account|null $oAccount When given, the embedded account hash must match.
+	 */
+	public function decodeRawKey(string $sRawKey, ?Model\Account $oAccount = null): array
 	{
-		return empty($sRawKey) ? []
-			: (\json_decode(\MailSo\Base\Utils::UrlSafeBase64Decode($sRawKey), true) ?: []);
-/*
-		if (empty($aValues['accountHash']) || $aValues['accountHash'] !== $oAccount->Hash()) {
+		if (empty($sRawKey)) {
 			return [];
 		}
-*/
+
+		$aValues = \json_decode(\MailSo\Base\Utils::UrlSafeBase64Decode($sRawKey), true);
+		if (!\is_array($aValues)) {
+			return [];
+		}
+
+		if ($oAccount) {
+			// Some clients use an indexed array with the account hash at index 3
+			// e.g. DoMessage: [folder, uid, useThreads, accountHash].
+			$sAccountHash = $aValues['accountHash'] ?? ($aValues[3] ?? '');
+			if (!\is_string($sAccountHash) || !\strlen($sAccountHash)
+			 || $sAccountHash !== $oAccount->Hash()
+			) {
+				return [];
+			}
+		}
+
+		return $aValues;
 	}
 
 	public function SetActionParams(array $aCurrentActionParams, string $sMethodName = ''): self

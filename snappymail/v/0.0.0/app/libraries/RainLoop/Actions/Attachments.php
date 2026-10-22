@@ -156,7 +156,7 @@ trait Attachments
 
 	private function getMimeFileByHash(\RainLoop\Model\Account $oAccount, string $sHash) : array
 	{
-		$aValues = $this->decodeRawKey($sHash);
+		$aValues = $this->decodeRawKey($sHash, $oAccount);
 		$aValues['fileName'] = empty($aValues['fileName']) ? 'file.dat' : (string) $aValues['fileName'];
 		$aValues['fileHash'] = null;
 		if (isset($aValues['data'])) {
