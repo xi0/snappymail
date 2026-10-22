@@ -70,7 +70,10 @@ trait Attachments
 						$oZip->open($sZipFileName, \ZIPARCHIVE::CREATE | \ZIPARCHIVE::OVERWRITE);
 						$oZip->setArchiveComment('SnappyMail/'.APP_VERSION);
 						foreach ($aData as $aItem) {
-							$sFileName = ($mUIDs ? "{$aItem['uid']}/" : ($sFolder ? "{$aItem['uid']}-" : '')) . $aItem['fileName'];
+							// The fileName is attacker controlled (MIME headers / raw-key),
+							// so SecureFileName() must sanitize it to prevent zip-slip (../../x.php).
+							$sFileName = ($mUIDs ? ((int) $aItem['uid']).'/' : ($sFolder ? ((int) $aItem['uid']).'-' : ''))
+								. \MailSo\Base\Utils::SecureFileName((string) $aItem['fileName']);
 							if (isset($aItem['data'])) {
 								if (!$oZip->addFromString($sFileName, $aItem['data'])) {
 									$bError = true;
@@ -108,6 +111,10 @@ trait Attachments
 						$oZip = new \PharData($sZipFileName . '.zip', 0, null, \Phar::ZIP);
 						$oZip->compressFiles(\Phar::GZ);
 						foreach ($aData as $aItem) {
+							// The fileName is attacker controlled (MIME headers / raw-key),
+							// so SecureFileName() must sanitize it to prevent zip-slip (../../x.php).
+							$sFileName = ($mUIDs ? ((int) $aItem['uid']).'/' : ($sFolder ? ((int) $aItem['uid']).'-' : ''))
+								. \MailSo\Base\Utils::SecureFileName((string) $aItem['fileName']);
 							if ($aItem['data']) {
 								if (!$oZip->addFromString($sFileName, \MailSo\Base\Utils::UrlSafeBase64Decode($aItem['data']))) {
 									$bError = true;
@@ -115,7 +122,7 @@ trait Attachments
 							} else {
 								$oZip->addFile(
 									$oFilesProvider->GetFileName($oAccount, $aItem['fileHash']),
-									($mUIDs ? "{$aItem['uid']}/" : ($sFolder ? "{$aItem['uid']}-" : '')) . $aItem['fileName']
+									$sFileName
 								);
 							}
 						}
@@ -157,7 +164,12 @@ trait Attachments
 	private function getMimeFileByHash(\RainLoop\Model\Account $oAccount, string $sHash) : array
 	{
 		$aValues = $this->decodeRawKey($sHash, $oAccount);
-		$aValues['fileName'] = empty($aValues['fileName']) ? 'file.dat' : (string) $aValues['fileName'];
+		// The fileName originates from the MIME headers and/or the client supplied
+		// raw-key. Sanitize it here as well so every consumer (zip/phar/plugins)
+		// gets a name that cannot traverse directories (zip-slip).
+		$sFileName = isset($aValues['fileName']) && \is_string($aValues['fileName']) ? $aValues['fileName'] : '';
+		$sFileName = \MailSo\Base\Utils::SecureFileName($sFileName);
+		$aValues['fileName'] = \strlen($sFileName) ? $sFileName : 'file.dat';
 		$aValues['fileHash'] = null;
 		if (isset($aValues['data'])) {
 			$aValues['data'] = \MailSo\Base\Utils::UrlSafeBase64Decode($aValues['data']);
