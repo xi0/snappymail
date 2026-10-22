@@ -76,20 +76,41 @@ class ServiceActions
 
 		$aResponse = null;
 		$oException = null;
-
-		if (empty($_POST) || (!empty($_SERVER['CONTENT_TYPE']) && \str_contains($_SERVER['CONTENT_TYPE'], 'application/json'))) {
-			$_POST = \json_decode(\file_get_contents('php://input'), true);
-		}
-
-		$sAction = $_POST['Action'] ?? '';
-		if (empty($sAction) && $this->oHttp->IsGet() && !empty($this->aPaths[2])) {
-			$sAction = $this->aPaths[2];
-		}
+		$sAction = '';
 
 		$this->oActions->SetIsJson(true);
 
 		try
 		{
+			if (empty($_POST) || (!empty($_SERVER['CONTENT_TYPE']) && \str_contains($_SERVER['CONTENT_TYPE'], 'application/json'))) {
+				$mPost = \json_decode(\file_get_contents('php://input'), true);
+				// The request body is fully client controlled and json_decode() can
+				// return any type (string, int, bool, null, ...). Only an object /
+				// associative array is a valid action payload.
+				// A GET request normally has no body and passes its action through
+				// the URL path, so an empty body is acceptable there.
+				if (!\is_array($mPost) && (!$this->oHttp->IsGet() || null !== $mPost)) {
+					throw new Exceptions\ClientException(Notifications::InvalidInputArgument, null, 'Invalid request body');
+				}
+				$_POST = \is_array($mPost) ? $mPost : [];
+			}
+
+			// Never index or pass a non-array $_POST around: PHP would throw a
+			// TypeError for string offsets before the action is even resolved.
+			if (!\is_array($_POST)) {
+				throw new Exceptions\ClientException(Notifications::InvalidInputArgument, null, 'Invalid request body');
+			}
+
+			$sAction = $_POST['Action'] ?? '';
+			if (empty($sAction) && $this->oHttp->IsGet() && !empty($this->aPaths[2])) {
+				$sAction = $this->aPaths[2];
+			}
+			if (!\is_string($sAction)) {
+				// Do not leak the invalid (possibly array) value into the response.
+				$sAction = '';
+				throw new Exceptions\ClientException(Notifications::InvalidInputArgument, null, 'Invalid Action');
+			}
+
 			if (empty($sAction)) {
 				throw new Exceptions\ClientException(Notifications::InvalidInputArgument, null, 'Action unknown');
 			}
@@ -107,7 +128,8 @@ class ServiceActions
 					if (empty($_POST['XToken']) || $_POST['XToken'] !== $token) {
 						$oAccount = $this->oActions->getAccountFromToken(false);
 						$sEmail = $oAccount ? $oAccount->Email() : 'guest';
-						$this->oActions->logWrite("{$_POST['XToken']} !== {$token} for {$sEmail}", \LOG_ERR, 'XToken');
+						$sXToken = \is_scalar($_POST['XToken'] ?? null) ? (string) $_POST['XToken'] : '';
+						$this->oActions->logWrite("{$sXToken} !== {$token} for {$sEmail}", \LOG_ERR, 'XToken');
 						throw new Exceptions\ClientException(Notifications::InvalidToken, null, 'XToken mismatch');
 					}
 				}

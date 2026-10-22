@@ -976,9 +976,49 @@ class Actions
 	{
 		$this->oPlugins->RunHook('filter.action-params', array($sMethodName, &$aCurrentActionParams));
 
-		$this->aCurrentActionParams = $aCurrentActionParams;
+		/*
+		 * Request parameters are fully client controlled. Normalize them so the
+		 * Do* handlers / plugins never receive objects, resources or arbitrarily
+		 * deeply nested arrays. Those would otherwise end up in (string)/(int)
+		 * casts and typed properties, causing warnings or fatal TypeErrors.
+		 */
+		$this->aCurrentActionParams = $this->normalizeActionParams($aCurrentActionParams);
 
 		return $this;
+	}
+
+	/**
+	 * @throws Exceptions\ClientException
+	 */
+	private function normalizeActionParams(array $aParams, int $iDepth = 0): array
+	{
+		if (16 < $iDepth) {
+			throw new Exceptions\ClientException(
+				Notifications::InvalidInputArgument,
+				null,
+				'Action parameter nesting too deep'
+			);
+		}
+
+		$aResult = array();
+		foreach ($aParams as $mKey => $mValue) {
+			$sKey = \is_int($mKey) ? $mKey : (string) $mKey;
+			if (\is_array($mValue)) {
+				$aResult[$sKey] = $this->normalizeActionParams($mValue, $iDepth + 1);
+			} else if (\is_object($mValue) || \is_resource($mValue)) {
+				throw new Exceptions\ClientException(
+					Notifications::InvalidInputArgument,
+					null,
+					'Invalid action parameter'
+				);
+			} else if (null === $mValue || \is_scalar($mValue)) {
+				$aResult[$sKey] = $mValue;
+			} else {
+				$aResult[$sKey] = null;
+			}
+		}
+
+		return $aResult;
 	}
 
 	/**
@@ -988,8 +1028,27 @@ class Actions
 	 */
 	public function GetActionParam(string $sKey, $mDefault = null)
 	{
-		return isset($this->aCurrentActionParams[$sKey]) ?
-			$this->aCurrentActionParams[$sKey] : $mDefault;
+		if (!isset($this->aCurrentActionParams[$sKey])) {
+			return $mDefault;
+		}
+
+		$mValue = $this->aCurrentActionParams[$sKey];
+
+		/*
+		 * Client controlled parameters may have a different type than the one
+		 * the calling handler expects (as hinted by its default value). Returning
+		 * the wrong type would trigger "Array to string conversion" or a
+		 * TypeError, so fall back to the expected default instead.
+		 */
+		if (\is_array($mDefault)) {
+			if (!\is_array($mValue)) {
+				return $mDefault;
+			}
+		} else if (\is_array($mValue) && null !== $mDefault) {
+			return $mDefault;
+		}
+
+		return $mValue;
 	}
 
 	/**
