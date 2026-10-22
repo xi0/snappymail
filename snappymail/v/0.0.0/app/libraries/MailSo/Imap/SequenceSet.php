@@ -34,11 +34,23 @@ class SequenceSet /*extends \SplFixedArray*/ implements \Countable
 	public function __construct($mItems, bool $uid = true)
 	{
 		if (\is_array($mItems)) {
-			$this->data = \array_values($uid ? \array_filter(\array_map(function($id){
-				return \preg_match('/^([0-9]+|\\*):([0-9]+|\\*)/', $id, $dummy) ? $id : \intval($id);
-			}, $mItems)) : $mItems);
+			$this->data = \array_values(\array_filter(\array_map(function($id){
+				if (!\is_scalar($id)) {
+					return null;
+				}
+				$id = (string) $id;
+				// Reject anything that is not a complete valid sequence-set item (RFC 3501 section 2.3.1.1).
+				// This prevents IMAP command injection through user supplied UID values.
+				if (!\preg_match('/^(\d+|\*)(:(\d+|\*))?$/D', $id)) {
+					return null;
+				}
+				return '*' === $id || false !== \strpos($id, ':') ? $id : \intval($id);
+			}, $mItems)));
 		} else if (\is_scalar($mItems)) {
-			$this->data[] = $mItems;
+			$mItems = (string) $mItems;
+			if (\preg_match('/^(\d+|\*)(:(\d+|\*))?$/D', $mItems)) {
+				$this->data[] = '*' === $mItems || false !== \strpos($mItems, ':') ? $mItems : \intval($mItems);
+			}
 		}
 		$this->UID = $uid;
 	}
