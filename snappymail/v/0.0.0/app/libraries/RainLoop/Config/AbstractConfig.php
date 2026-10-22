@@ -56,6 +56,19 @@ abstract class AbstractConfig implements \ArrayAccess, \JsonSerializable
 
 	protected abstract function defaultValues() : array;
 
+	/**
+	 * Keys are written to the INI file unquoted, so they must not contain
+	 * characters that would change the file structure (like newlines or the
+	 * section/parameter separators). Otherwise an attacker controlled key could
+	 * inject a new section on the next parse_ini_file().
+	 */
+	private static function isValidIniKey(string $sKey) : bool
+	{
+		return '' !== $sKey
+			&& \trim($sKey) === $sKey
+			&& !\preg_match('/[\x00-\x1F\x7F"#;=\[\]]/', $sKey);
+	}
+
 	public function IsInited() : bool
 	{
 		return \is_array($this->aData) && \count($this->aData);
@@ -104,7 +117,7 @@ abstract class AbstractConfig implements \ArrayAccess, \JsonSerializable
 					$this->aData[$sSectionKey][$sParamKey][0] = (string) $mParamValue;
 					break;
 			}
-		} else if ('custom' === $sSectionKey) {
+		} else if ('custom' === $sSectionKey && self::isValidIniKey($sParamKey)) {
 			$this->aData[$sSectionKey][$sParamKey] = array((string) $mParamValue);
 		}
 	}
@@ -268,13 +281,13 @@ abstract class AbstractConfig implements \ArrayAccess, \JsonSerializable
 		$aResultLines = array();
 
 		foreach ($this->aData as $sSectionKey => $aSectionValue) {
-			if (\is_array($aSectionValue)) {
+			if (\is_array($aSectionValue) && self::isValidIniKey((string) $sSectionKey)) {
 				$aResultLines[] = '';
 				$aResultLines[] = '['.$sSectionKey.']';
 				$bFirst = true;
 
 				foreach ($aSectionValue as $sParamKey => $mParamValue) {
-					if (\is_array($mParamValue)) {
+					if (\is_array($mParamValue) && self::isValidIniKey((string) $sParamKey)) {
 						// Add comments
 						if (!empty($mParamValue[1])) {
 							if (!$bFirst) {

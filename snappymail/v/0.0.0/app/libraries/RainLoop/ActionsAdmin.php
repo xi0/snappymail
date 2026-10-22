@@ -33,8 +33,20 @@ class ActionsAdmin extends Actions
 	public function DoAdminSettingsSet() : array
 	{
 		$oConfig = $this->Config();
-		foreach ($this->GetActionParam('config', []) as $sSection => $aItems) {
+		$aConfig = $this->GetActionParam('config', []);
+		if (!\is_array($aConfig)) {
+			throw new ClientException(Notifications::InvalidInputArgument, null, 'Invalid config');
+		}
+		foreach ($aConfig as $sSection => $aItems) {
+			// The "custom" section accepts arbitrary keys and is never part of
+			// the admin settings form, so it must not be writable from here.
+			if (!\is_string($sSection) || 'custom' === $sSection || !\is_array($aItems)) {
+				throw new ClientException(Notifications::InvalidInputArgument, null, 'Invalid config section');
+			}
 			foreach ($aItems as $sKey => $mValue) {
+				if (!\is_string($sKey) || !\is_scalar($mValue)) {
+					throw new ClientException(Notifications::InvalidInputArgument, null, 'Invalid config key');
+				}
 				$oConfig->Set($sSection, $sKey, $mValue);
 			}
 		}
