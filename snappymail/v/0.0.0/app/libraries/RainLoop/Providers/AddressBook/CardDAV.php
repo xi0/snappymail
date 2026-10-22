@@ -6,6 +6,18 @@ use SnappyMail\DAV\Client as DAVClient;
 
 trait CardDAV
 {
+	/**
+	 * Only CardDAV servers below this prefix are allowed.
+	 * This prevents SSRF: the URL is supplied by the user, so without an
+	 * allowlist the server could be tricked into requesting internal hosts
+	 * (http://127.0.0.1/, http://169.254.169.254/, ...).
+	 * (a method instead of a constant, trait constants require PHP 8.2)
+	 */
+	private static function allowedDavUrlPrefix() : string
+	{
+		return 'https://dav.gazellemail.dk/';
+	}
+
 	private $aDAVConfig = ['Mode' => 0];
 
 	public function setDAVClientConfig(?array $aConfig)
@@ -286,31 +298,75 @@ trait CardDAV
 		return $bGood;
 	}
 
-	private function getDavClientFromUrl(string $sUrl, string $sUser,
-		#[\SensitiveParameter]
-		string $sPassword,
-		string $sProxy = ''
-	) : DAVClient
+	/**
+	 * Checks that the user supplied URL points to the allowed CardDAV server.
+	 * Anything else is rejected, which also covers the SSRF checks the
+	 * vulnerability report asked for: a fixed host allowlist means no
+	 * private/loopback/link-local address can ever be reached.
+	 */
+	public static function isAllowedDavUrl(string $sUrl) : bool
 	{
-		if (!\preg_match('/^http[s]?:\/\//i', $sUrl)) {
-			$sUrl = \preg_replace('/^fruux\.com/i', 'dav.fruux.com', $sUrl);
-			$sUrl = \preg_replace('/^icloud\.com/i', 'contacts.icloud.com', $sUrl);
-			$sUrl = \preg_replace('/^gmail\.com/i', 'google.com', $sUrl);
-			$sUrl = 'https://'.$sUrl;
+		$sUrl = \trim($sUrl);
+		if ('' === $sUrl) {
+			return false;
+		}
+
+		// Force https and the exact allowed host prefix
+		if (0 !== \stripos($sUrl, static::allowedDavUrlPrefix())) {
+			return false;
 		}
 
 		$aUrl = \parse_url($sUrl);
 		if (!\is_array($aUrl)) {
-			$aUrl = array();
+			return false;
 		}
 
-		$aUrl['scheme'] = $aUrl['scheme'] ?? 'http';
-		$aUrl['host'] = $aUrl['host'] ?? 'localhost';
-		$aUrl['port'] = $aUrl['port'] ?? 0;
+		if ('https' !== \strtolower($aUrl['scheme'] ?? '')) {
+			return false;
+		}
+		if ('dav.gazellemail.dk' !== \strtolower($aUrl['host'] ?? '')) {
+			return false;
+		}
+		// No credentials in the URL (https://user:pass@host/)
+		if (isset($aUrl['user']) || isset($aUrl['pass'])) {
+			return false;
+		}
+		// No port, or the default https port (defense in depth)
+		if (isset($aUrl['port']) && 443 !== (int) $aUrl['port']) {
+			return false;
+		}
+
+		return true;
+	}
+
+	private function getDavClientFromUrl(string $sUrl, string $sUser,
+		#[\SensitiveParameter]
+		string $sPassword,
+		string $sProxy = ''
+	) : ?DAVClient
+	{
+		$sUrl = \trim($sUrl);
+		if (!static::isAllowedDavUrl($sUrl)) {
+			// Log the host only, the URL may contain credentials
+			$aLogUrl = \parse_url($sUrl);
+			$this->logWrite('DavClient: rejected CardDAV host: '.
+				(\is_array($aLogUrl) ? \substr((string) ($aLogUrl['host'] ?? 'unknown'), 0, 120) : 'unknown'),
+				\LOG_WARNING, 'DAV');
+			return null;
+		}
+
+		$aUrl = \parse_url($sUrl);
+		if (!\is_array($aUrl)) {
+			return null;
+		}
+
+		// The URL is allowlisted: https, host dav.gazellemail.dk, no port
+		$aUrl['scheme'] = 'https';
+		$aUrl['host'] = \strtolower($aUrl['host']);
 		$aUrl['path'] = isset($aUrl['path']) ? \rtrim($aUrl['path'], '\\/').'/' : '/';
 
 		$aSettings = array(
-			'baseUri' => $aUrl['scheme'].'://'.$aUrl['host'].($aUrl['port'] ? ':'.$aUrl['port'] : ''),
+			'baseUri' => $aUrl['scheme'].'://'.$aUrl['host'],
 			'userName' => $sUser,
 			'password' => $sPassword
 		);
@@ -322,7 +378,8 @@ trait CardDAV
 		}
 
 		$oClient = new DAVClient($aSettings);
-		$oClient->setVerifyPeer(false);
+		// Keep TLS certificate verification enabled
+		$oClient->setVerifyPeer(true);
 
 		$oClient->urlPath = $aUrl['path'];
 
@@ -352,6 +409,14 @@ trait CardDAV
 		}
 
 		$oClient = $this->getDavClientFromUrl($sUrl, $sUser, $sPassword, $sProxy);
+		if (!$oClient) {
+			// Do not disclose why the URL was rejected
+			throw new \RainLoop\Exceptions\ClientException(
+				\RainLoop\Notifications::ContactsSyncError,
+				null,
+				'Invalid or not allowed CardDAV URL'
+			);
+		}
 
 		$sPath = $oClient->urlPath;
 

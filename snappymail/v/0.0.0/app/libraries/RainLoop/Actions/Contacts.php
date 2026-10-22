@@ -98,11 +98,19 @@ trait Contacts
 		if (!$oClient) {
 			throw new ClientException(\RainLoop\Notifications::ContactsSyncError, null, 'No client');
 		}
-		$oClient->propFind($oClient->urlPath, [
-			'{DAV:}getlastmodified',
-			'{DAV:}resourcetype',
-			'{DAV:}getetag'
-		], 1);
+		try {
+			$oClient->propFind($oClient->urlPath, [
+				'{DAV:}getlastmodified',
+				'{DAV:}resourcetype',
+				'{DAV:}getetag'
+			], 1);
+		} catch (ClientException $oException) {
+			throw $oException;
+		} catch (\Throwable $oException) {
+			// Never expose upstream details (HTTP status, internal URLs, ...) to the client
+			\SnappyMail\LOG::error('DAV', $oException->getMessage());
+			throw new ClientException(\RainLoop\Notifications::ContactsSyncError, null, 'CardDAV connection failed');
+		}
 
 		return $this->TrueResponse();
 	}

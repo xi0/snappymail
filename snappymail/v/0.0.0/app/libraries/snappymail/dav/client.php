@@ -59,6 +59,38 @@ class Client
 	}
 
 	/**
+	 * Ensures an absolute URL points to the same server/port as the baseUri,
+	 * so a (remote) DAV server can not redirect our requests to another host.
+	 *
+	 * @throws \ValueError
+	 */
+	private function validateUrl(string $sUrl) : void
+	{
+		$aBase = \parse_url($this->baseUri);
+		$aUrl = \parse_url($sUrl);
+		if (!\is_array($aBase) || !\is_array($aUrl)) {
+			throw new \ValueError('Invalid DAV url');
+		}
+		if (\strtolower($aUrl['scheme'] ?? '') !== \strtolower($aBase['scheme'] ?? '')) {
+			throw new \ValueError('DAV url scheme mismatch');
+		}
+		if (\strtolower($aUrl['host'] ?? '') !== \strtolower($aBase['host'] ?? '')) {
+			throw new \ValueError('DAV url host mismatch');
+		}
+		// Compare effective ports, so an explicit default port is allowed
+		$iBasePort = (int) ($aBase['port'] ?? 0)
+			?: ('https' === \strtolower($aBase['scheme'] ?? '') ? 443 : 80);
+		$iUrlPort = (int) ($aUrl['port'] ?? 0)
+			?: ('https' === \strtolower($aUrl['scheme'] ?? '') ? 443 : 80);
+		if ($iUrlPort !== $iBasePort) {
+			throw new \ValueError('DAV url port mismatch');
+		}
+		if (isset($aUrl['user']) || isset($aUrl['pass'])) {
+			throw new \ValueError('DAV url must not contain credentials');
+		}
+	}
+
+	/**
 	 * Performs an actual HTTP request, and returns the result.
 	 *
 	 * If the specified url is relative, it will be expanded based on the base url.
@@ -74,6 +106,10 @@ class Client
 			} else {
 				$url = $this->baseUri . $url;
 			}
+		} else {
+			// Absolute url, it must stay within the configured server
+			// to prevent SSRF through server supplied hrefs
+			$this->validateUrl($url);
 		}
 		\SnappyMail\Log::debug('DAV', "{$method} {$url}" . ($body ? "\n\t" . \str_replace("\n", "\n\t", $body) : ''));
 		$response = $this->HTTP->doRequest($method, $url, $body, $headers);
