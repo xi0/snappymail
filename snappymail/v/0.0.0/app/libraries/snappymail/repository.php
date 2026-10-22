@@ -239,16 +239,59 @@ abstract class Repository
 		);
 	}
 
+	/**
+	 * Sanitize and validate a package id, rejecting any path traversal attempt.
+	 * Returns the safe basename or null when the id is invalid.
+	 */
+	private static function sanitizePackageId(string $sId) : ?string
+	{
+		$sId = \basename($sId);
+		if (!\strlen($sId) || '.' === $sId || '..' === $sId
+		 || !\preg_match('/^[a-z0-9._-]+$/i', $sId)) {
+			return null;
+		}
+		return $sId;
+	}
+
+	/**
+	 * Resolve the on-disk path of a package, ensuring it stays inside APP_PLUGINS_PATH.
+	 * Returns the path or null when the id/path is invalid.
+	 */
+	private static function getPackagePath(string $sId) : ?string
+	{
+		$sId = static::sanitizePackageId($sId);
+		if (null === $sId) {
+			return null;
+		}
+		$sPath = APP_PLUGINS_PATH.$sId;
+		$sRealPath = \realpath($sPath);
+		if (false !== $sRealPath) {
+			$sRealPluginsPath = \realpath(APP_PLUGINS_PATH);
+			if (false === $sRealPluginsPath
+			 || 0 !== \strpos($sRealPath, \rtrim($sRealPluginsPath, '\\/') . \DIRECTORY_SEPARATOR)) {
+				return null;
+			}
+		}
+		return $sPath;
+	}
+
 	public static function deletePackage(string $sId) : bool
 	{
 		\RainLoop\Api::Actions()->IsAdminLoggined();
+		$sId = static::sanitizePackageId($sId);
+		if (null === $sId) {
+			return false;
+		}
 		static::enablePackage($sId, false);
 		return static::deletePackageDir($sId);
 	}
 
 	private static function deletePackageDir(string $sId) : bool
 	{
-		$sPath = APP_PLUGINS_PATH.$sId;
+		$sPath = static::getPackagePath($sId);
+		if (null === $sPath) {
+			return false;
+		}
 		return (!\is_dir($sPath) || \MailSo\Base\Utils::RecRmDir($sPath))
 			&& (!\is_file("{$sPath}.phar") || \unlink("{$sPath}.phar"));
 	}
