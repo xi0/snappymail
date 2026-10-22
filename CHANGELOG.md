@@ -14,9 +14,20 @@
   correct SnappyMail CSS variables (flat toolbars, rounded cards/inputs/buttons,
   keyboard focus rings, tinted folder selection, unread pills, dark-mode fixes)
 
+### Security
+- Admin - Domain autoconfig (and the `login-autoconfig` extension) could be
+  abused as a Server Side Request Forgery probe into the internal network:
+  - the domain is now validated before it is used to build URLs
+  - private, loopback, link-local (e.g. `169.254.169.254`), CGNAT, multicast and
+    reserved IP ranges (IPv4 and IPv6) are never contacted, including the hosts
+    returned by DNS SRV records
+  - redirects are no longer followed and responses are capped at 1 MB
+
 ### Fixed
 - Gazellemail theme used non-existent CSS variable names (`--btn-bg-color`,
   `--input-color`, `--panel-bg-color`, ...) which had no effect
+- PHP deprecation `idn_to_ascii(): Passing null to parameter #1` on the admin
+  domain autoconfig request without a `domain` parameter
 
 
 ## 2.38.2 – 2024-10-09

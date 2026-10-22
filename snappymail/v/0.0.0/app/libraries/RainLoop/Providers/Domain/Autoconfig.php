@@ -7,12 +7,57 @@ namespace RainLoop\Providers\Domain;
 
 abstract class Autoconfig
 {
+	/**
+	 * Maximum amount of bytes we read from a remote configuration file
+	 */
+	const MAX_RESPONSE_SIZE = 1048576; // 1 MB
+
+	/**
+	 * Networks which we must never contact, else this
+	 * functionality can be abused as a SSRF probe into
+	 * the internal network (or cloud metadata services).
+	 */
+	const BLOCKED_IPV4_NETWORKS = [
+		'0.0.0.0/8',        // "this" network
+		'10.0.0.0/8',       // private
+		'100.64.0.0/10',    // carrier-grade NAT
+		'127.0.0.0/8',      // loopback
+		'169.254.0.0/16',   // link-local (incl. 169.254.169.254 metadata)
+		'172.16.0.0/12',    // private
+		'192.0.0.0/24',     // IETF protocol assignments
+		'192.0.2.0/24',     // TEST-NET-1
+		'192.88.99.0/24',   // 6to4 relay anycast
+		'192.168.0.0/16',   // private
+		'198.18.0.0/15',    // benchmarking
+		'198.51.100.0/24',  // TEST-NET-2
+		'203.0.113.0/24',   // TEST-NET-3
+		'224.0.0.0/4',      // multicast
+		'240.0.0.0/4'       // reserved + broadcast
+	];
+
+	const BLOCKED_IPV6_NETWORKS = [
+		'::/128',           // unspecified
+		'::1/128',          // loopback
+		'::ffff:0:0/96',    // IPv4-mapped
+		'64:ff9b:1::/48',   // local-use NAT64
+		'100::/64',         // discard-only
+		'2001::/32',        // Teredo
+		'2001:db8::/32',    // documentation
+		'2002::/16',        // 6to4
+		'fc00::/7',         // unique local
+		'fe80::/10',        // link-local
+		'fec0::/10',        // deprecated site-local
+		'ff00::/8'          // multicast
+	];
+
 	public static function discover(string $emailaddress) : ?array
 	{
-//		$emailaddress = \SnappyMail\IDN::emailToAscii($emailaddress);
 		$domain = \MailSo\Base\Utils::getEmailAddressDomain($emailaddress);
-//		$domain = \SnappyMail\IDN::toAscii($domain);
-		$domain = \strtolower(\idn_to_ascii($domain));
+		$domain = static::toAscii($domain);
+		if (!static::isSafeHost($domain)) {
+			\SnappyMail\Log::warning('Autoconfig', 'Refused to discover unsafe domain: '.static::logValue($domain));
+			return null;
+		}
 		return
 			// First try autoconfig
 			static::resolve($domain, $emailaddress)
@@ -24,8 +69,200 @@ abstract class Autoconfig
 			?: static::srv($domain);
 	}
 
+	private static function toAscii(string $domain) : string
+	{
+		$domain = \trim($domain);
+		return '' === $domain ? '' : \strtolower((string) \idn_to_ascii($domain));
+	}
+
+	/**
+	 * User/DNS controlled values are written to the log, make them harmless
+	 */
+	private static function logValue(string $value) : string
+	{
+		return \substr(\preg_replace('/[^\x20-\x7E]/', '?', $value), 0, 120);
+	}
+
+	/**
+	 * Fetch a remote URL.
+	 *
+	 * The host is supplied by the (admin) user and/or by DNS records,
+	 * so every request is validated first: it must be a public host and
+	 * redirects are not followed. This prevents Server Side Request
+	 * Forgery, where the webmail server is used to probe the internal
+	 * network or cloud metadata services.
+	 */
+	private static function fetch(string $url, array $aHttpOptions = array()) : string
+	{
+		$aUrl = \parse_url($url);
+		if (!\is_array($aUrl)
+		 || !isset($aUrl['host'])
+		 || !\in_array(\strtolower($aUrl['scheme'] ?? ''), ['http', 'https'], true)
+		 || isset($aUrl['user']) || isset($aUrl['pass'])
+		 || !static::isSafeHost($aUrl['host'])
+		) {
+			// Only log the scheme and host, the URL may contain an email address
+			\SnappyMail\Log::warning('Autoconfig', 'Blocked request to unsafe URL: '
+				. (\is_array($aUrl) ? (\strtolower($aUrl['scheme'] ?? '?') . '://' . ($aUrl['host'] ?? '?')) : 'invalid'));
+			return '';
+		}
+
+		$context = \stream_context_create([
+			'http' => \array_merge([
+				'method'          => 'GET',
+				'timeout'         => 5,
+				// A redirect could point to a host we did not validate
+				'follow_location' => 0,
+				'max_redirects'   => 0,
+				'protocol_version'=> 1.1,
+				'header'          => 'Connection: close'
+			], $aHttpOptions),
+			'ssl' => [
+				'verify_peer'      => true,
+				'verify_peer_name' => true
+			]
+		]);
+
+		$data = @\file_get_contents($url, false, $context, 0, static::MAX_RESPONSE_SIZE);
+		return \is_string($data) ? $data : '';
+	}
+
+	/**
+	 * Hosts we already validated during this request
+	 */
+	private static $aHostSafetyCache = array();
+
+	/**
+	 * A host is only safe when it is a valid public DNS name or a public IP,
+	 * which does not resolve to any private/reserved address.
+	 * Returns false when the host can't be resolved (fail closed).
+	 */
+	private static function isSafeHost(string $host) : bool
+	{
+		$host = \strtolower(\trim($host, " \t\r\n\0\x0B"));
+		// Strip the DNS root dot and IPv6 brackets
+		$host = \rtrim($host, '.');
+		if (\str_starts_with($host, '[') && \str_ends_with($host, ']')) {
+			$host = \substr($host, 1, -1);
+		}
+		if (!isset(static::$aHostSafetyCache[$host])) {
+			static::$aHostSafetyCache[$host] = static::checkHost($host);
+		}
+		return static::$aHostSafetyCache[$host];
+	}
+
+	private static function checkHost(string $host) : bool
+	{
+		if ('' === $host || 253 < \strlen($host)) {
+			return false;
+		}
+
+		// IP literal
+		if (\filter_var($host, \FILTER_VALIDATE_IP)) {
+			return static::isPublicIP($host);
+		}
+
+		// Must be a proper domain name: at least two labels, no ports/paths
+		if (!\preg_match('/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/D', $host)) {
+			return false;
+		}
+
+		// Never contact special-use/internal-only domains
+		if (\preg_match('/(?:^|\.)(?:localhost|local|localdomain|internal|intranet|lan|home|home\.arpa|corp|private|test|example|invalid|onion)$/', $host)) {
+			return false;
+		}
+
+		$aIPs = static::resolveHost($host);
+		if (!$aIPs) {
+			return false;
+		}
+		foreach ($aIPs as $sIP) {
+			if (!static::isPublicIP($sIP)) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	private static function resolveHost(string $host) : array
+	{
+		$aIPs = array();
+		$records = @\dns_get_record($host, \DNS_A | \DNS_AAAA);
+		if (\is_array($records)) {
+			foreach ($records as $record) {
+				if (!empty($record['ip'])) {
+					$aIPs[] = $record['ip'];
+				} else if (!empty($record['ipv6'])) {
+					$aIPs[] = $record['ipv6'];
+				}
+			}
+		}
+		if (!$aIPs) {
+			// Fallback to the system resolver, which also uses /etc/hosts
+			foreach (@\gethostbynamel($host) ?: array() as $sIP) {
+				$aIPs[] = $sIP;
+			}
+		}
+		return \array_values(\array_unique($aIPs));
+	}
+
+	private static function isPublicIP(string $ip) : bool
+	{
+		$ip = \trim($ip, " \t\r\n\0\x0B[]");
+		// Strip IPv6 zone index like fe80::1%eth0
+		$iPos = \strpos($ip, '%');
+		if (false !== $iPos) {
+			$ip = \substr($ip, 0, $iPos);
+		}
+		// Normalize IPv4-mapped IPv6 like ::ffff:127.0.0.1
+		if (\preg_match('/^::(?:ffff:)?(\d{1,3}(?:\.\d{1,3}){3})$/i', $ip, $aMatch)) {
+			return static::isPublicIP($aMatch[1]);
+		}
+		if (!\filter_var($ip, \FILTER_VALIDATE_IP)) {
+			return false;
+		}
+		$packed = @\inet_pton($ip);
+		if (false === $packed) {
+			return false;
+		}
+		$aNetworks = 4 === \strlen($packed)
+			? static::BLOCKED_IPV4_NETWORKS
+			: static::BLOCKED_IPV6_NETWORKS;
+		foreach ($aNetworks as $network) {
+			if (static::ipInNetwork($packed, $network)) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	private static function ipInNetwork(string $packed, string $network) : bool
+	{
+		$aParts = \explode('/', $network, 2);
+		$packedNetwork = @\inet_pton($aParts[0]);
+		if (false === $packedNetwork || \strlen($packedNetwork) !== \strlen($packed)) {
+			return false;
+		}
+		$iBits = (int) ($aParts[1] ?? 0);
+		$iBytes = \intdiv($iBits, 8);
+		if (0 < $iBytes && \substr($packed, 0, $iBytes) !== \substr($packedNetwork, 0, $iBytes)) {
+			return false;
+		}
+		$iRest = $iBits % 8;
+		if (0 < $iRest) {
+			$iMask = (0xFF << (8 - $iRest)) & 0xFF;
+			if ((\ord($packed[$iBytes]) & $iMask) !== (\ord($packedNetwork[$iBytes]) & $iMask)) {
+				return false;
+			}
+		}
+		return true;
+	}
+
 	private static function resolve(string $domain, string $emailaddress) : ?array
 	{
+		if (!static::isSafeHost($domain)) {
+			return null;
+		}
 		$emailaddress = \urlencode($emailaddress);
 		foreach ([
 			// Mail provider https://www.ietf.org/archive/id/draft-bucksch-autoconfig-02.html#section-4.1
@@ -35,7 +272,7 @@ abstract class Autoconfig
 			// Central database https://www.ietf.org/archive/id/draft-bucksch-autoconfig-02.html#section-4.2
 			"https://autoconfig.thunderbird.net/v1.1/{$domain}"
 		] as $url) {
-			$data = \file_get_contents($url);
+			$data = static::fetch($url);
 			if ($data && \str_contains($data, '<clientConfig')) {
 				$data = \json_decode(
 					\json_encode(
@@ -74,7 +311,7 @@ abstract class Autoconfig
 		}
 		if (null === $list) {
 			$list = [];
-			$data = \file_get_contents('https://publicsuffix.org/list/public_suffix_list.dat');
+			$data = static::fetch('https://publicsuffix.org/list/public_suffix_list.dat');
 			if ($data) {
 				$list = \array_filter(
 					\explode("\n", $data),
@@ -93,6 +330,7 @@ abstract class Autoconfig
 	private static function mx(string $domain, string $emailaddress) : ?array
 	{
 		$suffixes = static::publicsuffixes();
+		$hostnames = [];
 		foreach (\SnappyMail\DNS::MX($domain) as $hostname) {
 			// Extract only the second-level domain from the MX hostname
 			$mxbasedomain = \explode('.', $hostname);
@@ -121,6 +359,7 @@ abstract class Autoconfig
 				}
 			}
 		}
+		return null;
 	}
 
 	/**
@@ -168,13 +407,25 @@ abstract class Autoconfig
 	 */
 	private static function autodiscover(string $domain) : ?array
 	{
+		if (!static::isSafeHost($domain)) {
+			return null;
+		}
 		foreach (\SnappyMail\DNS::SRV("_autodiscover._tcp.{$domain}") as $record) {
+			if (empty($record['target'])) {
+				continue;
+			}
+			// The SRV target is remote controlled, so it must be validated
+			$target = \rtrim(\trim($record['target']), '.');
+			if (!static::isSafeHost($target)) {
+				\SnappyMail\Log::warning('Autoconfig', 'Blocked autodiscover SRV target: '.static::logValue($target));
+				continue;
+			}
 			if (443 == $record['port']) {
-				$result = static::autodiscover_resolve("https://{$record['target']}", $domain);
+				$result = static::autodiscover_resolve("https://{$target}", $domain);
 			} else if (80 == $record['port']) {
-				$result = static::autodiscover_resolve("http://{$record['target']}", $domain);
+				$result = static::autodiscover_resolve("http://{$target}", $domain);
 			} else {
-				$result = static::autodiscover_resolve("https://{$record['target']}:{$record['port']}", $domain);
+				$result = static::autodiscover_resolve("https://{$target}:{$record['port']}", $domain);
 			}
 			if ($result) {
 				return $result;
@@ -196,19 +447,13 @@ abstract class Autoconfig
 	private static function autodiscover_resolve(string $host, string $domain) : ?array
 	{
 		$email = "autodiscover@{$domain}";
-		$context = \stream_context_create(['http' => [
-			'method'  => 'POST',
-			'header'  => 'Content-Type: application/xml',
-			'content' => '<?xml version="1.0" encoding="utf-8" ?>
-		<Autodiscover xmlns="http://schemas.microsoft.com/exchange/autodiscover/outlook/requestschema/2006">
-			<Request>
-				<AcceptableResponseSchema>http://schemas.microsoft.com/exchange/autodiscover/outlook/responseschema/2006a</AcceptableResponseSchema>
-				<EMailAddress>'.$email.'</EMailAddress>
-			</Request>
-		</Autodiscover>'
-		]]);
 		$url = "{$host}/autodiscover/autodiscover.xml";
-		$xml = \file_get_contents($url, false, $context);
+		$body = static::autodiscover_request($email);
+		$xml = static::fetch($url, [
+			'method'  => 'POST',
+			'header'  => "Content-Type: application/xml\r\nContent-Length: " . \strlen($body) . "\r\nConnection: close",
+			'content' => $body
+		]);
 		if ($xml) {
 			$data = \json_decode(
 				\json_encode(
@@ -243,6 +488,17 @@ abstract class Autoconfig
 			}
 		}
 		return null;
+	}
+
+	private static function autodiscover_request(string $email) : string
+	{
+		return '<?xml version="1.0" encoding="utf-8" ?>
+		<Autodiscover xmlns="http://schemas.microsoft.com/exchange/autodiscover/outlook/requestschema/2006">
+			<Request>
+				<AcceptableResponseSchema>http://schemas.microsoft.com/exchange/autodiscover/outlook/responseschema/2006a</AcceptableResponseSchema>
+				<EMailAddress>'.$email.'</EMailAddress>
+			</Request>
+		</Autodiscover>';
 	}
 
 }

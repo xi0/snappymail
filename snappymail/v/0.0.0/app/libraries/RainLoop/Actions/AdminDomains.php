@@ -80,8 +80,22 @@ trait AdminDomains
 	public function DoAdminDomainAutoconfig() : array
 	{
 		$this->IsAdminLoggined();
-//		$sDomain = \SnappyMail\IDN::toAscii($this->GetActionParam('domain'));
-		$sDomain = \strtolower(\idn_to_ascii($this->GetActionParam('domain')));
+
+		/*
+		 * The domain is fully client controlled, so validate it before it is
+		 * used to generate URLs (SSRF) and never pass NULL to idn_to_ascii().
+		 */
+		$mDomain = $this->GetActionParam('domain', '');
+		$sDomain = \is_scalar($mDomain)
+			? \rtrim(\SnappyMail\IDN::toAscii(\trim((string) $mDomain)), '.')
+			: '';
+		if (!\strlen($sDomain)
+		 || \filter_var($sDomain, FILTER_VALIDATE_IP)
+		 || !\preg_match('/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/D', $sDomain)
+		) {
+			throw new ClientException(\RainLoop\Notifications::InvalidInputArgument, null, 'Invalid domain');
+		}
+
 		$sEmail = "test@{$sDomain}";
 		return $this->DefaultResponse(array(
 			'email' => $sEmail,
