@@ -87,6 +87,8 @@ const state = {
 	cursor: startOfDay(new Date()),
 	loading: false,
 	sidebarCollapsed: false,
+	// Current event-search query entered in the sidebar search box ('' = off)
+	search: '',
 	error: ''
 };
 
@@ -927,6 +929,11 @@ function buildDialog() {
 			</div>
 			<div class="mc-body">
 				<aside class="mc-sidebar">
+					<div class="mc-search">
+						<span class="mc-search-icon" aria-hidden="true">🔍</span>
+						<input type="search" class="mc-search-input" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+						<button type="button" class="mc-search-clear" hidden>×</button>
+					</div>
 					<div class="mc-sidebar-head">
 						<div class="mc-sidebar-title">Calendars</div>
 						<button type="button" class="mc-cal-new" data-cal-newcalendar aria-label="New calendar" title="New calendar">+</button>
@@ -1079,6 +1086,10 @@ function buildDialog() {
 	q('[data-cal-view="week"]').textContent = t('CALDAV/WEEK', 'Week');
 	q('[data-cal-view="month"]').textContent = t('CALDAV/MONTH', 'Month');
 	q('.mc-sidebar-title').textContent = t('CALDAV/CALENDARS', 'Calendars');
+	const searchInput = q('.mc-search-input');
+	searchInput.placeholder = t('CALDAV/SEARCH_PLACEHOLDER', 'Search events…');
+	searchInput.setAttribute('aria-label', t('CALDAV/SEARCH', 'Search events'));
+	q('.mc-search-clear').setAttribute('aria-label', t('CALDAV/CLEAR', 'Clear'));
 	const newCalendarBtn = q('[data-cal-newcalendar]');
 	newCalendarBtn.title = t('CALDAV/NEW_CALENDAR', 'New calendar');
 	newCalendarBtn.setAttribute('aria-label', t('CALDAV/NEW_CALENDAR', 'New calendar'));
@@ -1276,6 +1287,20 @@ function buildDialog() {
 			toggleSidebar();
 			return;
 		}
+		// Search results: "Clear" returns to the grid, a result opens the event
+		if (target.closest('[data-cal-search-clear]')) {
+			clearSearch();
+			return;
+		}
+		const searchItem = target.closest('[data-cal-search-id]');
+		if (searchItem) {
+			const series = state.events.find(item => item.id === searchItem.dataset.calSearchId);
+			if (series) {
+				clearSearch();
+				openEventForm(series);
+			}
+			return;
+		}
 		// Calendar form interactions take priority over everything else
 		if (target.closest('[data-cal-form-calendar]')) {
 			if (target.closest('[data-cal-calform-close]') || target.closest('[data-cal-calcancel]')) {
@@ -1377,20 +1402,45 @@ function buildDialog() {
 		renderContent();
 	});
 
+	// Sidebar event search: debounced as the user types. Escape-to-clear is
+	// handled in onKeydown(), which runs in the capture phase (so it fires
+	// before this field would otherwise let the dialog's Escape handler run).
+	const searchBox = q('.mc-search-input');
+	const searchClear = q('.mc-search-clear');
+	searchBox.addEventListener('input', () => scheduleSearch(searchBox.value));
+	searchClear.addEventListener('click', () => {
+		clearSearch();
+		searchBox.focus();
+	});
+
 	document.body.appendChild(dialogEl);
 }
 
 function onKeydown(event) {
-	if (event.key === 'Escape') {
-		const calForm = dialogEl && dialogEl.querySelector('[data-cal-form-calendar]');
-		const form = dialogEl && dialogEl.querySelector('[data-cal-form]');
-		if (calForm && !calForm.hidden) {
-			closeCalendarForm();
-		} else if (form && !form.hidden) {
-			closeEventForm();
-		} else {
-			closeDialog();
+	if (event.key !== 'Escape') {
+		return;
+	}
+	// Escape inside the search box clears the search instead of closing the
+	// dialog. This listener runs in the capture phase, so it must check the
+	// target itself rather than relying on the input's own handler.
+	const target = event.target;
+	if (target && target.closest && target.closest('.mc-search')) {
+		if (state.search || (target.value)) {
+			clearSearch();
 		}
+		if (target.blur) {
+			target.blur();
+		}
+		return;
+	}
+	const calForm = dialogEl && dialogEl.querySelector('[data-cal-form-calendar]');
+	const form = dialogEl && dialogEl.querySelector('[data-cal-form]');
+	if (calForm && !calForm.hidden) {
+		closeCalendarForm();
+	} else if (form && !form.hidden) {
+		closeEventForm();
+	} else {
+		closeDialog();
 	}
 }
 
@@ -1441,6 +1491,16 @@ function closeDialog() {
 	editingSeries = null;
 	editingCalendar = null;
 	participants = [];
+	// Drop any active search so reopening starts on the normal grid
+	clearTimeout(searchTimer);
+	state.search = '';
+	if (dialogEl) {
+		const searchInput = dialogEl.querySelector('.mc-search-input');
+		if (searchInput) {
+			searchInput.value = '';
+		}
+	}
+	updateSearchClear();
 	document.removeEventListener('keydown', onKeydown, true);
 }
 
@@ -1721,6 +1781,49 @@ function hideContactSuggestions() {
 		box.hidden = true;
 		box.innerHTML = '';
 	}
+}
+
+/* ------------------------------------------------------------ event search */
+
+// Debounce timer for the sidebar search box (one search as typing settles).
+let searchTimer = null;
+
+// Keep the sidebar's clear (×) button visibility in sync with the query.
+function updateSearchClear() {
+	if (!dialogEl) {
+		return;
+	}
+	const clearBtn = dialogEl.querySelector('.mc-search-clear');
+	if (clearBtn) {
+		clearBtn.hidden = !state.search;
+	}
+}
+
+// Debounced entry point from the input's 'input' event.
+function scheduleSearch(value) {
+	clearTimeout(searchTimer);
+	searchTimer = setTimeout(() => applySearch(value), 150);
+}
+
+// Commit the query and re-render (results list, or the grid when empty).
+function applySearch(value) {
+	state.search = ('' + (value == null ? '' : value)).trim();
+	updateSearchClear();
+	renderContent();
+}
+
+// Clear the search box and return to the normal calendar grid.
+function clearSearch() {
+	clearTimeout(searchTimer);
+	state.search = '';
+	if (dialogEl) {
+		const input = dialogEl.querySelector('.mc-search-input');
+		if (input) {
+			input.value = '';
+		}
+	}
+	updateSearchClear();
+	renderContent();
 }
 
 /* -------------------------------------------------------------- event form */
@@ -2548,6 +2651,7 @@ function renderContent() {
 	dialogEl.querySelectorAll('[data-cal-view]').forEach(btn =>
 		btn.classList.toggle('active', btn.dataset.calView === state.view));
 	period.textContent = periodLabel();
+	updateSearchClear();
 
 	if (state.loading) {
 		content.innerHTML = '<div class="mc-info"><div class="mc-spinner"></div><p>'
@@ -2557,6 +2661,13 @@ function renderContent() {
 	}
 	if (state.error) {
 		content.innerHTML = '<div class="mc-info mc-error">' + esc(state.error) + '</div>';
+		return;
+	}
+
+	// A search query replaces the calendar grid with a results list
+	const query = state.search.trim();
+	if (query) {
+		renderSearchResults(content, query);
 		return;
 	}
 
@@ -2698,6 +2809,62 @@ function renderWeek(content) {
 
 function renderDay(content) {
 	renderTimeGrid(content, [state.cursor], true);
+}
+
+// Series (one entry per event resource) visible to search: restricted to the
+// checked calendars and matching the query on title / location / description.
+function searchMatches(query) {
+	const needle = ('' + query).toLowerCase();
+	return state.events
+		.filter(series => state.selected.has(series.calendarId))
+		.filter(series => ('' + series.title + '\n' + (series.location || '') + '\n'
+			+ (series.description || '')).toLowerCase().indexOf(needle) !== -1)
+		.sort((a, b) => a.start - b.start);
+}
+
+// Human readable "date · time" (or "date" for all-day) for a search result.
+function searchResultWhen(series) {
+	if (!series.start) {
+		return '';
+	}
+	const date = formatDate(series.start, {year: 'numeric', month: 'short', day: 'numeric'});
+	return series.allDay ? date : (date + ' · ' + timeLabel(series.start));
+}
+
+// Results list shown in `.mc-content` while a search query is active.
+function renderSearchResults(content, query) {
+	const matches = searchMatches(query);
+
+	let html = '<div class="mc-search-results">';
+	html += '<div class="mc-search-head">';
+	html += '<span class="mc-search-count">'
+		+ esc(t('CALDAV/SEARCH_RESULTS', '%COUNT% events found', {COUNT: matches.length}))
+		+ '</span>';
+	html += '<button type="button" class="mc-search-clear-all" data-cal-search-clear>'
+		+ esc(t('CALDAV/CLEAR', 'Clear')) + '</button>';
+	html += '</div>';
+
+	if (!matches.length) {
+		html += '<div class="mc-search-empty">'
+			+ esc(t('CALDAV/SEARCH_NO_RESULTS', 'No matching events')) + '</div>';
+	} else {
+		html += '<div class="mc-search-list">';
+		matches.forEach(series => {
+			const when = searchResultWhen(series);
+			const meta = when + (series.location ? ' · ' + series.location : '');
+			html += '<button type="button" class="mc-search-item" data-cal-search-id="' + esc(series.id) + '">'
+				+ '<span class="mc-cal-dot" style="background-color:' + esc(series.color) + '"></span>'
+				+ '<span class="mc-search-item-main">'
+				+ '<span class="mc-search-item-title">' + esc(series.title) + repeatIcon(series) + '</span>'
+				+ '<span class="mc-search-item-meta">' + esc(meta) + '</span>'
+				+ '</span></button>';
+		});
+		html += '</div>';
+	}
+
+	html += '</div>';
+	content.innerHTML = html;
+	content.scrollTop = 0;
 }
 
 function eventPosition(event, day) {

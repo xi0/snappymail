@@ -374,6 +374,161 @@ html.rl-left-panel-disabled #rl-left .buttonCompose {
 	padding: 6px 2px;
 }
 
+/* ---- Event search (sidebar box + results list) ---- */
+.mailbux-cal-dialog .mc-search {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	margin-bottom: 10px;
+	padding: 3px 6px;
+	background: #fff;
+	border: 1px solid #c9ced6;
+	border-radius: 6px;
+	transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.mailbux-cal-dialog .mc-search:focus-within {
+	border-color: #00639a;
+	box-shadow: 0 0 0 2px rgba(0, 99, 154, 0.15);
+}
+
+.mailbux-cal-dialog .mc-search-icon {
+	font-size: 12px;
+	line-height: 1;
+	opacity: 0.6;
+}
+
+.mailbux-cal-dialog .mc-search-input {
+	flex: 1 1 auto;
+	min-width: 0;
+	border: none;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	font-size: 13px;
+	padding: 4px;
+	outline: none;
+}
+
+/* Hide the browser's native search "x": the box has its own clear button. */
+.mailbux-cal-dialog .mc-search-input::-webkit-search-cancel-button,
+.mailbux-cal-dialog .mc-search-input::-webkit-search-decoration {
+	-webkit-appearance: none;
+	appearance: none;
+}
+
+.mailbux-cal-dialog .mc-search-clear {
+	flex: 0 0 auto;
+	border: none;
+	background: transparent;
+	color: inherit;
+	cursor: pointer;
+	font-size: 16px;
+	line-height: 1;
+	padding: 0 4px;
+	border-radius: 50%;
+	opacity: 0.6;
+}
+
+.mailbux-cal-dialog .mc-search-clear:hover {
+	opacity: 1;
+	background: rgba(0, 0, 0, 0.08);
+}
+
+.mailbux-cal-dialog .mc-search-clear[hidden] {
+	display: none;
+}
+
+.mailbux-cal-dialog .mc-search-results {
+	display: flex;
+	flex-direction: column;
+	min-height: 100%;
+	padding: 12px 16px;
+}
+
+.mailbux-cal-dialog .mc-search-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	padding-bottom: 8px;
+	margin-bottom: 8px;
+	border-bottom: 1px solid #e0e0e0;
+	font-size: 13px;
+	color: #666;
+}
+
+.mailbux-cal-dialog .mc-search-clear-all {
+	border: 1px solid #c9ced6;
+	background: #eef2f6;
+	color: #333;
+	cursor: pointer;
+	font: inherit;
+	font-size: 12px;
+	padding: 3px 10px;
+	border-radius: 6px;
+}
+
+.mailbux-cal-dialog .mc-search-clear-all:hover {
+	background: #e2e8ef;
+}
+
+.mailbux-cal-dialog .mc-search-list {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.mailbux-cal-dialog .mc-search-item {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	width: 100%;
+	text-align: left;
+	border: none;
+	background: transparent;
+	color: inherit;
+	cursor: pointer;
+	font: inherit;
+	padding: 8px;
+	border-radius: 6px;
+}
+
+.mailbux-cal-dialog .mc-search-item:hover,
+.mailbux-cal-dialog .mc-search-item:focus {
+	background: #eef2f6;
+	outline: none;
+}
+
+.mailbux-cal-dialog .mc-search-item-main {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+
+.mailbux-cal-dialog .mc-search-item-title {
+	font-size: 14px;
+	font-weight: 600;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.mailbux-cal-dialog .mc-search-item-meta {
+	font-size: 12px;
+	color: #6b7b86;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.mailbux-cal-dialog .mc-search-empty {
+	padding: 40px 10px;
+	text-align: center;
+	color: #8c8c8c;
+	font-size: 14px;
+}
+
 /* Collapsible calendar list: the toggle lives in the top bar and hides the
    whole side panel so the calendar grid can use the full width. */
 .mailbux-cal-dialog .mc-sidebar-toggle {
@@ -1498,6 +1653,35 @@ html.rl-left-panel-disabled #rl-left .buttonCompose {
 :root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-cal-edit:hover,
 :root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-cal-edit:focus {
 	background: rgba(255, 255, 255, 0.12);
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-search {
+	background: #2a2a2a;
+	border-color: #444;
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-search-input {
+	color: #e6e6e6;
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-search-clear:hover {
+	background: rgba(255, 255, 255, 0.12);
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-search-head {
+	border-bottom-color: #3b3b3b;
+	color: #a8a8a8;
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-search-clear-all {
+	background: #2c2c2c;
+	border-color: #444;
+	color: #ddd;
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-search-clear-all:hover {
+	background: #383838;
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-search-item:hover,
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-search-item:focus {
+	background: #2c2c2c;
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-search-item-meta {
+	color: #a8a8a8;
 }
 :root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-color-swatch.active {
 	border-color: #e6e6e6;
