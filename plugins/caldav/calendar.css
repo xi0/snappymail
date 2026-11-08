@@ -1357,6 +1357,43 @@ html.rl-left-panel-disabled #rl-left .buttonCompose {
 	}
 }
 
+/* On narrow phones the top bar cannot fit all controls on one line. Rather
+   than let flexbox wrap arbitrarily (which can split the navigation or the
+   view switcher), force a controlled three-line layout:
+     1. everything before the period label
+        (sidebar toggle, title icon, prev/Today/next navigation)
+     2. the period label on its own full-width, centred line
+     3. everything after the period label
+        (Day/Week/Month switcher, new-event "+", close "×")
+   `.mc-period` takes a full line (flex-basis 100%), which is what pushes the
+   groups before and after it onto the first and last lines. Above this width
+   the original single-line layout is unchanged. */
+@media (max-width: 460px) {
+	.mailbux-cal-dialog .mc-sidebar-toggle,
+	.mailbux-cal-dialog .mc-title,
+	.mailbux-cal-dialog .mc-nav {
+		order: 0;
+	}
+	.mailbux-cal-dialog .mc-period {
+		order: 1;
+		flex: 0 0 100%;
+		text-align: center;
+	}
+	.mailbux-cal-dialog .mc-views,
+	.mailbux-cal-dialog .mc-new,
+	.mailbux-cal-dialog .mc-close {
+		order: 2;
+	}
+	/* Keep the navigation at the right of line 1 and the action buttons at the
+	   right of line 3 for a balanced look. */
+	.mailbux-cal-dialog .mc-nav {
+		margin-left: auto;
+	}
+	.mailbux-cal-dialog .mc-new {
+		margin-left: auto;
+	}
+}
+
 /* ---- Large screens ---- */
 @media (min-width: 1600px) {
 	.mailbux-cal-dialog .mc-window {
