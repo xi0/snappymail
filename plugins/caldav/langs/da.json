@@ -13,6 +13,7 @@
 		"ERROR_CALENDAR_NAME_REQUIRED": "Kalenderens navn er påkrævet",
 		"ERROR_CALENDAR_NOT_FOUND": "Kalenderen blev ikke fundet",
 		"TODAY": "I dag",
+		"NOW": "Nu",
 		"PREVIOUS": "Forrige",
 		"NEXT": "Næste",
 		"DAY": "Dag",

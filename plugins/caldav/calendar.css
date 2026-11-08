@@ -459,6 +459,7 @@ html.rl-left-panel-disabled #rl-left .buttonCompose {
 }
 
 .mailbux-cal-dialog .mc-day {
+	position: relative;
 	background: #fff;
 	min-height: 96px;
 	padding: 4px 5px;
@@ -638,6 +639,65 @@ html.rl-left-panel-disabled #rl-left .buttonCompose {
 	display: flex;
 	flex-direction: column;
 	overflow: hidden;
+}
+
+/* ---- Current time indicator ("now" line) ---- */
+/* A timer in calendar-dialog.js positions these elements, so the indicator
+   follows the clock while the dialog stays open. `pointer-events: none` keeps
+   the "click an empty slot to create an event" behaviour on the whole column. */
+.mailbux-cal-dialog .mc-now {
+	position: absolute;
+	left: 0;
+	right: 0;
+	height: 0;
+	border-top: 2px solid #e9322d;
+	/* Above the events (no z-index) but below the sticky column heads (2) */
+	z-index: 1;
+	pointer-events: none;
+}
+
+.mailbux-cal-dialog .mc-now-dot {
+	position: absolute;
+	left: -5px;
+	top: -5px;
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: #e9322d;
+}
+
+/* Time gutter: the pill showing the current time next to the line */
+.mailbux-cal-dialog .mc-timecol-body {
+	position: relative;
+}
+
+.mailbux-cal-dialog .mc-now-gutter {
+	position: absolute;
+	right: 3px;
+	transform: translateY(-50%);
+	background: #e9322d;
+	color: #fff;
+	font-size: 10px;
+	font-weight: 700;
+	line-height: 1.2;
+	padding: 1px 4px;
+	border-radius: 4px;
+	white-space: nowrap;
+	pointer-events: none;
+	/* Keep the pill under the sticky time-column head (z-index 2) */
+	z-index: 1;
+}
+
+/* Month view: today's cell also shows the live current time */
+.mailbux-cal-dialog .mc-now-time {
+	position: absolute;
+	top: 7px;
+	right: 6px;
+	color: #e9322d;
+	font-size: 11px;
+	font-weight: 700;
+	line-height: 1;
+	pointer-events: none;
 }
 
 /* ---- New event button + event form ---- */
@@ -1369,6 +1429,20 @@ html.rl-left-panel-disabled #rl-left .buttonCompose {
 }
 :root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-timeslot {
 	border-color: #2a2a2a;
+}
+/* Current-time indicator: a brighter red stays readable on the dark grid */
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-now {
+	border-top-color: #ff6b64;
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-now-dot {
+	background: #ff6b64;
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-now-gutter {
+	background: #ff6b64;
+	color: #171717;
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-now-time {
+	color: #ff6b64;
 }
 :root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-cal-item {
 	color: #d8d8d8;

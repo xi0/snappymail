@@ -28,6 +28,7 @@ Built for performance, privacy, and simplicity — your calendar stays perfectly
 - ➕ Create, ✏️ edit and 🗑️ delete events in **any** of your calendars  
 - 🔁 Full support for **recurring events** (daily / weekly / monthly / yearly, with interval, weekdays and an end date or count)  
 - 👥 **Invite participants** — pick them from your address book, send iTIP invitations and track their responses  
+- 🕒 **Current time indicator** — a live "now" line in the week/day views and the current time in today's month cell  
 - 🔄 Two-way synchronization with any CalDAV server  
 - 🔒 Secure encrypted connections  
 - ⚙️ Simple configuration in SnappyMail settings  
@@ -89,6 +90,15 @@ Participants are stored on the CalDAV event as standard `ATTENDEE` entries (with
 **Sending invitations.** Tick **E-mail invitations to participants** in the event form (it is on by default for new events) and save. The plugin sends a proper iTIP `METHOD:REQUEST` e-mail — with the current event as a `text/calendar` attachment — to every participant.
 
 **Registering responses.** When a participant replies from their own calendar client, the reply arrives as a `text/calendar` (`METHOD:REPLY`) attachment. The message view shows a **Response received** box with the participant and their answer plus an **Update calendar** button that updates that participant's `PARTSTAT` (accepted / tentative / declined) on the stored event.
+
+### ⏰ Current time
+
+The calendar dialog always shows where "now" is:
+
+- **Week / day view** — a red line is drawn across today's column at the current time, with a dot at its left end and the time next to it in the hour gutter.
+- **Month view** — today's cell is highlighted and shows the current time in its top-right corner.
+
+While the dialog stays open the indicator keeps following the clock (it is refreshed every 20 seconds), and it moves to the new day automatically if the calendar is left open past midnight.
 
 ### 🕒 Timezones
 

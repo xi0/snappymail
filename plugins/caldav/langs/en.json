@@ -13,6 +13,7 @@
 		"ERROR_CALENDAR_NAME_REQUIRED": "Calendar name required",
 		"ERROR_CALENDAR_NOT_FOUND": "Calendar not found",
 		"TODAY": "Today",
+		"NOW": "Now",
 		"PREVIOUS": "Previous",
 		"NEXT": "Next",
 		"DAY": "Day",

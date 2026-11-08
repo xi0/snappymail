@@ -102,6 +102,16 @@ let participants = [];
 // Timer for the debounced address-book search backing the participant picker
 let contactsSearchTimer = null;
 
+// The current-time ("now") indicator is refreshed on this interval so it keeps
+// following the clock while the dialog stays open. Small enough to look live,
+// large enough to be free: it only moves an absolutely positioned line.
+const NOW_REFRESH_MS = 20000;
+// Interval id of the running indicator timer (null while the dialog is closed)
+let nowTimer = null;
+// Local day the indicator was last drawn for, so a midnight rollover can move
+// the "today" highlight to the new day.
+let nowRenderedDay = null;
+
 /* ------------------------------------------------------------------ utils */
 
 function loadSavedView() {
@@ -1405,9 +1415,13 @@ function openDialog() {
 		renderContent();
 		refreshEvents();
 	}
+
+	// Keep the current-time indicator following the clock while the dialog is open
+	startNowTimer();
 }
 
 function closeDialog() {
+	stopNowTimer();
 	if (dialogEl) {
 		dialogEl.classList.remove('show');
 		const form = dialogEl.querySelector('[data-cal-form]');
@@ -2553,6 +2567,8 @@ function renderContent() {
 	} else {
 		renderDay(content);
 	}
+	// The grid was just rebuilt, so re-attach the current-time indicator
+	updateNowIndicator();
 }
 
 function periodLabel() {
@@ -2588,11 +2604,17 @@ function renderMonth(content) {
 		if (day.getMonth() !== month) {
 			classes.push('mc-other-month');
 		}
-		if (sameDay(day, today)) {
+		const isToday = sameDay(day, today);
+		if (isToday) {
 			classes.push('mc-today');
 		}
 		html += '<div class="' + classes.join(' ') + '" data-cal-newdate="' + dateInputValue(day) + '">';
 		html += '<div class="mc-day-num">' + day.getDate() + '</div>';
+		// Live current time inside today's cell (filled by updateNowIndicator)
+		if (isToday) {
+			html += '<span class="mc-now-time" data-cal-nowtime title="'
+				+ esc(t('CALDAV/NOW', 'Now')) + '"></span>';
+		}
 		html += '<div class="mc-day-events">';
 		dayEvents.slice(0, 3).forEach(event => {
 			html += '<div class="mc-event" data-cal-event="' + esc(event.domId) + '" style="background-color:' + esc(event.color) + '" title="' + esc(eventTooltip(event)) + '">'
@@ -2694,6 +2716,91 @@ function eventPosition(event, day) {
 		height = 18;
 	}
 	return {top: Math.round(top), height: Math.round(height)};
+}
+
+/* -------------------------------------------------------- current time */
+
+// Vertical offset (px) of a moment inside one day of the time grid
+function nowOffsetPx(date) {
+	const seconds = date.getHours() * 3600 + date.getMinutes() * 60 + date.getSeconds();
+	return (seconds / 86400) * (24 * HOUR_PX);
+}
+
+// Draw/refresh the "now" indicator for the view currently on screen:
+//  - week + day views: red line across today's column, with a dot at the left
+//    end and a time pill in the time gutter next to it
+//  - month view: live time inside today's cell
+// Called after every render and on a timer (see startNowTimer).
+function updateNowIndicator() {
+	if (!dialogEl || !dialogEl.classList.contains('show')) {
+		return;
+	}
+	const now = new Date();
+	const label = timeLabel(now);
+	const hint = t('CALDAV/NOW', 'Now');
+	nowRenderedDay = startOfDay(now);
+
+	// Month view: live time badge inside the "today" cell
+	dialogEl.querySelectorAll('[data-cal-nowtime]').forEach(el => {
+		el.textContent = label;
+	});
+
+	// Week/day views: only today's column carries the line
+	const body = dialogEl.querySelector('.mc-daycol.mc-today .mc-daycol-body');
+	if (!body) {
+		return;
+	}
+	const offset = nowOffsetPx(now);
+
+	let line = body.querySelector('.mc-now');
+	if (!line) {
+		line = document.createElement('div');
+		line.className = 'mc-now';
+		line.setAttribute('aria-hidden', 'true');
+		line.innerHTML = '<span class="mc-now-dot"></span>';
+		body.appendChild(line);
+	}
+	line.style.top = offset.toFixed(1) + 'px';
+	line.title = hint + ' ' + label;
+
+	// Time pill in the left gutter, vertically centred on the line
+	const gutter = dialogEl.querySelector('.mc-timecol-body');
+	if (gutter) {
+		let pill = gutter.querySelector('.mc-now-gutter');
+		if (!pill) {
+			pill = document.createElement('span');
+			pill.className = 'mc-now-gutter';
+			pill.setAttribute('aria-hidden', 'true');
+			gutter.appendChild(pill);
+		}
+		pill.textContent = label;
+		pill.style.top = offset.toFixed(1) + 'px';
+		pill.title = hint + ' ' + label;
+	}
+}
+
+// Timer tick: normally just move the indicator, but when the calendar day has
+// rolled over the grid is re-rendered so the "today" column/highlight follows.
+function tickNowIndicator() {
+	const now = new Date();
+	if (nowRenderedDay && !sameDay(now, nowRenderedDay)) {
+		renderContent();
+		return;
+	}
+	updateNowIndicator();
+}
+
+function startNowTimer() {
+	stopNowTimer();
+	updateNowIndicator();
+	nowTimer = setInterval(tickNowIndicator, NOW_REFRESH_MS);
+}
+
+function stopNowTimer() {
+	if (nowTimer) {
+		clearInterval(nowTimer);
+		nowTimer = null;
+	}
 }
 
 /* ------------------------------------------------------------- navigation */
