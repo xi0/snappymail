@@ -268,22 +268,46 @@ html.rl-left-panel-disabled #rl-left .buttonCompose {
 	overflow-y: auto;
 }
 
+.mailbux-cal-dialog .mc-sidebar-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 6px;
+	margin-bottom: 10px;
+}
+
 .mailbux-cal-dialog .mc-sidebar-title {
 	font-size: 12px;
 	font-weight: 700;
 	text-transform: uppercase;
 	letter-spacing: 0.5px;
 	color: #8c8c8c;
-	margin-bottom: 10px;
+	margin-bottom: 0;
+}
+
+/* "New calendar" button in the calendar list header */
+.mailbux-cal-dialog .mc-cal-new {
+	flex: 0 0 auto;
+	border: 1px solid #c9ced6;
+	background: #fff;
+	color: #00639a;
+	cursor: pointer;
+	font-size: 15px;
+	font-weight: 700;
+	line-height: 1;
+	padding: 1px 7px 3px;
+	border-radius: 6px;
+}
+
+.mailbux-cal-dialog .mc-cal-new:hover {
+	background: #eef2f6;
 }
 
 .mailbux-cal-dialog .mc-cal-item {
 	display: flex;
 	align-items: center;
-	gap: 8px;
-	padding: 7px 8px;
+	gap: 2px;
 	border-radius: 6px;
-	cursor: pointer;
 	font-size: 14px;
 	color: #333;
 }
@@ -292,9 +316,43 @@ html.rl-left-panel-disabled #rl-left .buttonCompose {
 	background: #eef2f6;
 }
 
+/* The checkbox + colour dot + name stay inside the label so the whole row
+   (except the edit button) toggles the calendar visibility. */
+.mailbux-cal-dialog .mc-cal-check {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex: 1 1 auto;
+	min-width: 0;
+	padding: 7px 4px 7px 8px;
+	cursor: pointer;
+}
+
 .mailbux-cal-dialog .mc-cal-item input {
 	cursor: pointer;
 	margin: 0;
+}
+
+/* Pencil that opens the calendar editor for a single calendar */
+.mailbux-cal-dialog .mc-cal-edit {
+	flex: 0 0 auto;
+	border: none;
+	background: transparent;
+	color: inherit;
+	cursor: pointer;
+	font-size: 13px;
+	line-height: 1;
+	padding: 5px 7px;
+	margin-right: 2px;
+	border-radius: 6px;
+	opacity: 0.5;
+}
+
+.mailbux-cal-dialog .mc-cal-edit:hover,
+.mailbux-cal-dialog .mc-cal-edit:focus {
+	opacity: 1;
+	background: rgba(0, 0, 0, 0.08);
+	outline: none;
 }
 
 .mailbux-cal-dialog .mc-cal-dot {
@@ -634,7 +692,8 @@ html.rl-left-panel-disabled #rl-left .buttonCompose {
 	color: #fff;
 }
 
-.mailbux-cal-dialog .mc-form-title {
+.mailbux-cal-dialog .mc-form-title,
+.mailbux-cal-dialog .mc-calform-title {
 	font-size: 16px;
 	font-weight: 600;
 }
@@ -705,6 +764,52 @@ html.rl-left-panel-disabled #rl-left .buttonCompose {
 
 .mailbux-cal-dialog .mc-check input {
 	margin: 0;
+}
+
+/* ---- Calendar form: colour swatches ---- */
+.mailbux-cal-dialog .mc-color-swatches {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin: 2px 0 4px;
+}
+
+.mailbux-cal-dialog .mc-color-swatch {
+	width: 24px;
+	height: 24px;
+	padding: 0;
+	border: 2px solid transparent;
+	border-radius: 6px;
+	cursor: pointer;
+	box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15);
+}
+
+.mailbux-cal-dialog .mc-color-swatch:hover {
+	transform: scale(1.06);
+}
+
+.mailbux-cal-dialog .mc-color-swatch.active {
+	border-color: #1a1a1a;
+	box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.6);
+}
+
+.mailbux-cal-dialog .mc-color-custom {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	font-size: 13px;
+	color: #666;
+	cursor: pointer;
+}
+
+.mailbux-cal-dialog .mc-color-custom input[type="color"] {
+	width: 40px;
+	height: 26px;
+	padding: 0;
+	border: 1px solid #c9ced6;
+	border-radius: 6px;
+	background: transparent;
+	cursor: pointer;
 }
 
 .mailbux-cal-dialog .mc-only-this {
@@ -1270,6 +1375,27 @@ html.rl-left-panel-disabled #rl-left .buttonCompose {
 }
 :root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-cal-item:hover {
 	background: #2c2c2c;
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-cal-new {
+	background: #2c2c2c;
+	border-color: #444;
+	color: #4fb3e8;
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-cal-new:hover {
+	background: #383838;
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-cal-edit:hover,
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-cal-edit:focus {
+	background: rgba(255, 255, 255, 0.12);
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-color-swatch.active {
+	border-color: #e6e6e6;
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-color-custom {
+	color: #a8a8a8;
+}
+:root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-color-custom input[type="color"] {
+	border-color: #444;
 }
 :root[data-theme-mode="dark"] .mailbux-cal-dialog .mc-form-window {
 	background: #1f1f1f;

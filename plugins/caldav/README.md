@@ -24,6 +24,7 @@ Built for performance, privacy, and simplicity — your calendar stays perfectly
 ## 🚀 Features
 
 - 📆 View and manage CalDAV calendars inside SnappyMail  
+- 🗂️ Create, rename, recolor and delete calendars  
 - ➕ Create, ✏️ edit and 🗑️ delete events in **any** of your calendars  
 - 🔁 Full support for **recurring events** (daily / weekly / monthly / yearly, with interval, weekdays and an end date or count)  
 - 👥 **Invite participants** — pick them from your address book, send iTIP invitations and track their responses  
@@ -42,6 +43,16 @@ Open the calendar dialog with the 📅 button and:
 - **Delete** — open an event and press **Delete**.
 
 The event form lets you pick any of the discovered **calendars** from the dropdown, so an event can be created in — or moved between — all of your available calendars.
+
+### 🗂️ Managing calendars
+
+The calendar list on the left is not just a filter — the calendars themselves can be managed from there:
+
+- **Create** — click the **+** next to the *Calendars* heading, type a name, pick a colour and save. The plugin sends a `MKCALENDAR` request to your CalDAV server, so the new calendar is created server-side (and shows up in every other client). Its collection name is derived from the title (e.g. "Work & Projects" → `work-projects`) and made unique automatically.
+- **Rename / recolor** — click the ✏ next to any calendar, change the name and/or colour (preset swatches or a custom colour) and save. This is stored as `displayname` + `calendar-color` via `PROPPATCH`.
+- **Delete** — open the same dialog and press **Delete**. The whole collection, including all of its events, is removed (`DELETE`). A confirmation is asked first.
+
+A calendar that was never discovered on the server (the placeholder shown when discovery fails) is flagged read-only and does not offer the ✏ button.
 
 ### 🔁 Recurring events
 

@@ -30,6 +30,11 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 		$this->addJsonHook('UpdateCalendarEvent', 'DoUpdateCalendarEvent');
 		$this->addJsonHook('DeleteCalendarEvent', 'DoDeleteCalendarEvent');
 
+		// Calendar collections (create, rename/recolor, delete)
+		$this->addJsonHook('CreateCalendar', 'DoCreateCalendar');
+		$this->addJsonHook('UpdateCalendar', 'DoUpdateCalendar');
+		$this->addJsonHook('DeleteCalendar', 'DoDeleteCalendar');
+
 		// Calendar invites received as .ics attachments in mail messages
 		$this->addJsonHook('ImportCalendarEvent', 'DoImportCalendarEvent');
 		$this->addJsonHook('RespondToEvent', 'DoRespondToEvent');
@@ -424,13 +429,20 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 			
 			$aCalendars = [];
 			if ($result['code'] === 207) {
-				$aCalendars = $this->parseCalendarsResponse($result['body']);
+				$aCalendars = $this->parseCalendarsResponse($result['body'], $aConfig);
 			}
 			
-			// Always provide at least one usable calendar so the UI keeps working
+			// Always provide at least one usable calendar so the UI keeps working.
+			// It is flagged read-only because the collection was never discovered
+			// on the server, so it cannot be renamed or deleted.
 			if (!$aCalendars) {
 				$aCalendars = [
-					['id' => 'default', 'name' => $this->msg('CALENDAR', [], 'Calendar'), 'color' => '#00639a']
+					[
+						'id' => 'default',
+						'name' => $this->msg('CALENDAR', [], 'Calendar'),
+						'color' => '#00639a',
+						'readOnly' => true
+					]
 				];
 			}
 			
@@ -444,7 +456,7 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 	/**
 	 * Parse a CalDAV PROPFIND multistatus response into a list of calendars.
 	 */
-	private function parseCalendarsResponse($xml) : array
+	private function parseCalendarsResponse($xml, array $aConfig = []) : array
 	{
 		$aCalendars = [];
 		
@@ -471,7 +483,10 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 					continue;
 				}
 				
-				$sHref = rtrim(trim($hrefNodes->item(0)->nodeValue), '/');
+				// Keep the untouched href for later PROPPATCH/DELETE requests,
+				// but strip the trailing slash for the calendar id.
+				$sFullHref = trim($hrefNodes->item(0)->nodeValue);
+				$sHref = rtrim($sFullHref, '/');
 				if ('' === $sHref) {
 					continue;
 				}
@@ -506,7 +521,10 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 				$aCalendars[] = [
 					'id' => $sId,
 					'name' => $sName,
-					'color' => $sColor
+					'color' => $sColor,
+					// Exact collection URL reported by the server (used for
+					// PROPPATCH/DELETE so redirects and non-standard paths work)
+					'url' => $this->resolveEventUrl($aConfig, $sFullHref)
 				];
 				++$i;
 			}
@@ -517,6 +535,344 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 		return $aCalendars;
 	}
 	
+	/* ------------------------------------------------------------------
+	   Calendar collections (create, rename/recolor, delete)
+	   ------------------------------------------------------------------ */
+
+	/**
+	 * Create a new calendar collection in the user's calendar home.
+	 */
+	public function DoCreateCalendar() : array
+	{
+		try {
+			$oAccount = $this->Manager()->Actions()->getAccountFromToken();
+			if (!$oAccount) {
+				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_NOT_LOGGED_IN', [], 'Not logged in')]);
+			}
+
+			$aConfig = $this->getCalendarConfig($oAccount);
+			if (!$aConfig) {
+				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_NOT_CONFIGURED', [], 'Calendar not configured')]);
+			}
+
+			$sPassword = $this->getDecryptedPassword($aConfig);
+			if (null === $sPassword) {
+				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_NO_ENCRYPTION_KEY', [], 'Cannot access encryption key')]);
+			}
+
+			$sName = \trim((string) $this->jsonParam('Name', ''));
+			if ('' === $sName) {
+				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_CALENDAR_NAME_REQUIRED', [], 'Calendar name required')]);
+			}
+
+			$sColor = $this->normalizeCalendarColor($this->jsonParam('Color', ''));
+
+			$sId = $this->uniqueCalendarId($aConfig, $sPassword, $sName);
+			$sCalendarUrl = \rtrim($aConfig['CalDAVUrl'], '/') . '/' . \rawurlencode($sId) . '/';
+
+			$sBody = '<?xml version="1.0" encoding="utf-8" ?>' . "\n"
+				. '<C:mkcalendar xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav" xmlns:A="http://apple.com/ns/ical/">' . "\n"
+				. '  <D:set>' . "\n"
+				. '    <D:prop>' . "\n"
+				. '      <D:displayname>' . $this->xmlText($sName) . '</D:displayname>' . "\n"
+				. ('' !== $sColor ? '      <A:calendar-color>' . $sColor . '</A:calendar-color>' . "\n" : '')
+				. '      <C:supported-calendar-component-set>' . "\n"
+				. '        <C:comp name="VEVENT" />' . "\n"
+				. '      </C:supported-calendar-component-set>' . "\n"
+				. '    </D:prop>' . "\n"
+				. '  </D:set>' . "\n"
+				. '</C:mkcalendar>';
+
+			$result = $this->makeCalDAVRequest(
+				$sCalendarUrl,
+				'MKCALENDAR',
+				$aConfig['User'],
+				$sPassword,
+				$sBody,
+				['Content-Type: application/xml; charset=utf-8']
+			);
+
+			if (\in_array($result['code'], [200, 201, 204], true)) {
+				return $this->jsonResponse(__FUNCTION__, [
+					'success' => true,
+					'id' => $sId,
+					'url' => $sCalendarUrl,
+					'name' => $sName,
+					'color' => $sColor
+				]);
+			}
+
+			return $this->jsonResponse(__FUNCTION__, [
+				'success' => false,
+				'error' => $this->msg('ERROR_CALDAV', ['CODE' => $result['code']], 'CalDAV error: ' . $result['code'])
+			]);
+
+		} catch (\Exception $e) {
+			return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $e->getMessage()]);
+		}
+	}
+
+	/**
+	 * Rename and/or recolor an existing calendar collection.
+	 */
+	public function DoUpdateCalendar() : array
+	{
+		try {
+			$oAccount = $this->Manager()->Actions()->getAccountFromToken();
+			if (!$oAccount) {
+				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_NOT_LOGGED_IN', [], 'Not logged in')]);
+			}
+
+			$aConfig = $this->getCalendarConfig($oAccount);
+			if (!$aConfig) {
+				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_NOT_CONFIGURED', [], 'Calendar not configured')]);
+			}
+
+			$sPassword = $this->getDecryptedPassword($aConfig);
+			if (null === $sPassword) {
+				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_NO_ENCRYPTION_KEY', [], 'Cannot access encryption key')]);
+			}
+
+			$sName = \trim((string) $this->jsonParam('Name', ''));
+			if ('' === $sName) {
+				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_CALENDAR_NAME_REQUIRED', [], 'Calendar name required')]);
+			}
+
+			$sCalendarUrl = $this->resolveCollectionUrl($aConfig,
+				(string) $this->jsonParam('CalendarId', ''),
+				(string) $this->jsonParam('CalendarUrl', ''));
+			if ('' === $sCalendarUrl) {
+				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_CALENDAR_NOT_FOUND', [], 'Calendar not found')]);
+			}
+
+			$sColor = $this->normalizeCalendarColor($this->jsonParam('Color', ''));
+
+			$sBody = '<?xml version="1.0" encoding="utf-8" ?>' . "\n"
+				. '<D:propertyupdate xmlns:D="DAV:" xmlns:A="http://apple.com/ns/ical/">' . "\n"
+				. '  <D:set>' . "\n"
+				. '    <D:prop>' . "\n"
+				. '      <D:displayname>' . $this->xmlText($sName) . '</D:displayname>' . "\n"
+				. ('' !== $sColor ? '      <A:calendar-color>' . $sColor . '</A:calendar-color>' . "\n" : '')
+				. '    </D:prop>' . "\n"
+				. '  </D:set>' . "\n"
+				. '</D:propertyupdate>';
+
+			$result = $this->makeCalDAVRequest(
+				$sCalendarUrl,
+				'PROPPATCH',
+				$aConfig['User'],
+				$sPassword,
+				$sBody,
+				['Content-Type: application/xml; charset=utf-8']
+			);
+
+			if (207 === $result['code'] && !$this->calDAVMultistatusHasErrors((string) $result['body'])) {
+				return $this->jsonResponse(__FUNCTION__, [
+					'success' => true,
+					'name' => $sName,
+					'color' => $sColor
+				]);
+			}
+
+			return $this->jsonResponse(__FUNCTION__, [
+				'success' => false,
+				'error' => $this->msg('ERROR_CALDAV', ['CODE' => $result['code']], 'CalDAV error: ' . $result['code'])
+			]);
+
+		} catch (\Exception $e) {
+			return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $e->getMessage()]);
+		}
+	}
+
+	/**
+	 * Delete a calendar collection (including all of its events).
+	 */
+	public function DoDeleteCalendar() : array
+	{
+		try {
+			$oAccount = $this->Manager()->Actions()->getAccountFromToken();
+			if (!$oAccount) {
+				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_NOT_LOGGED_IN', [], 'Not logged in')]);
+			}
+
+			$aConfig = $this->getCalendarConfig($oAccount);
+			if (!$aConfig) {
+				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_NOT_CONFIGURED', [], 'Calendar not configured')]);
+			}
+
+			$sPassword = $this->getDecryptedPassword($aConfig);
+			if (null === $sPassword) {
+				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_NO_ENCRYPTION_KEY', [], 'Cannot access encryption key')]);
+			}
+
+			$sCalendarUrl = $this->resolveCollectionUrl($aConfig,
+				(string) $this->jsonParam('CalendarId', ''),
+				(string) $this->jsonParam('CalendarUrl', ''));
+			if ('' === $sCalendarUrl) {
+				return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $this->msg('ERROR_CALENDAR_NOT_FOUND', [], 'Calendar not found')]);
+			}
+
+			$result = $this->makeCalDAVRequest($sCalendarUrl, 'DELETE', $aConfig['User'], $sPassword);
+
+			// 404 means it is already gone, which is the desired end state
+			if (\in_array($result['code'], [200, 202, 204, 404], true)) {
+				return $this->jsonResponse(__FUNCTION__, ['success' => true]);
+			}
+
+			return $this->jsonResponse(__FUNCTION__, [
+				'success' => false,
+				'error' => $this->msg('ERROR_CALDAV', ['CODE' => $result['code']], 'CalDAV error: ' . $result['code'])
+			]);
+
+		} catch (\Exception $e) {
+			return $this->jsonResponse(__FUNCTION__, ['success' => false, 'error' => $e->getMessage()]);
+		}
+	}
+
+	/**
+	 * Resolve the URL of a calendar collection for management requests.
+	 * The server-reported URL is preferred, otherwise it is derived from the
+	 * calendar id inside the user's calendar home.
+	 */
+	private function resolveCollectionUrl(array $aConfig, string $sCalendarId, string $sUrl = '') : string
+	{
+		$sResolved = $this->resolveEventUrl($aConfig, $sUrl);
+		if ('' !== $sResolved && $this->isSameDavHost($aConfig, $sResolved)) {
+			return $sResolved;
+		}
+
+		$sCalendarId = \trim($sCalendarId);
+		if ('' === $sCalendarId) {
+			return '';
+		}
+
+		return $this->calendarUrl($aConfig, $sCalendarId) . '/';
+	}
+
+	/**
+	 * Whether $sUrl points at the same host as the configured CalDAV server.
+	 * Collection management requests send the user's credentials, so a
+	 * client supplied URL must never be able to target another host.
+	 */
+	private function isSameDavHost(array $aConfig, string $sUrl) : bool
+	{
+		$aBase = \parse_url($aConfig['CalDAVUrl']);
+		if (empty($aBase['host'])) {
+			return false;
+		}
+		$aParts = \parse_url($sUrl);
+		return !empty($aParts['host']) && 0 === \strcasecmp($aParts['host'], $aBase['host']);
+	}
+
+	/**
+	 * Normalize a client supplied calendar colour to "#RRGGBB".
+	 * Returns '' when the value is not a usable colour.
+	 */
+	private function normalizeCalendarColor($sColor) : string
+	{
+		$sColor = \trim((string) $sColor);
+		if (\preg_match('/^#?([0-9a-fA-F]{6})(?:[0-9a-fA-F]{2})?$/', $sColor, $m)) {
+			return '#' . $m[1];
+		}
+		return '';
+	}
+
+	/**
+	 * Escape a value for use inside XML text/attributes.
+	 */
+	private function xmlText(string $sText) : string
+	{
+		return \htmlspecialchars($sText, \ENT_QUOTES | \ENT_XML1, 'UTF-8');
+	}
+
+	/**
+	 * Build a URL-safe collection name from a human readable calendar name.
+	 */
+	private function slugifyCalendarName(string $sName) : string
+	{
+		// Transliterate the letters that would otherwise be dropped, so e.g.
+		// "Møder & Aftaler" becomes "moeder-aftaler" instead of "m-der".
+		$sName = \str_replace(
+			['æ','ø','å','ä','ö','ü','ß','é','è','ê','ë','á','à','â','í','ì','î','ó','ò','ô','ú','ù','û','ñ','ç','Æ','Ø','Å','Ä','Ö','Ü','É','È','Ê','Ë','Á','À','Â','Í','Ì','Î','Ó','Ò','Ô','Ú','Ù','Û','Ñ','Ç'],
+			['ae','oe','aa','ae','oe','ue','ss','e','e','e','e','a','a','a','i','i','i','o','o','o','u','u','u','n','c','Ae','Oe','Aa','Ae','Oe','Ue','E','E','E','E','A','A','A','I','I','I','O','O','O','U','U','U','N','C'],
+			$sName
+		);
+
+		$sSlug = \strtolower($sName);
+		$sSlug = \preg_replace('/[^a-z0-9]+/', '-', $sSlug);
+		$sSlug = \trim((string) $sSlug, '-');
+		if ('' === $sSlug) {
+			$sSlug = 'calendar-' . \substr(\md5(\uniqid('', true)), 0, 8);
+		}
+
+		return \substr($sSlug, 0, 64);
+	}
+
+	/**
+	 * Return a collection name for a new calendar that is not in use yet.
+	 */
+	private function uniqueCalendarId(array $aConfig, $sPassword, string $sName) : string
+	{
+		$sBase = $this->slugifyCalendarName($sName);
+		$sHomeUrl = \rtrim($aConfig['CalDAVUrl'], '/') . '/';
+		$sBody = '<?xml version="1.0" encoding="utf-8" ?>'
+			. '<D:propfind xmlns:D="DAV:"><D:prop><D:resourcetype /></D:prop></D:propfind>';
+
+		for ($i = 1; $i <= 20; $i++) {
+			$sId = (1 === $i) ? $sBase : ($sBase . '-' . $i);
+			$result = $this->makeCalDAVRequest(
+				$sHomeUrl . \rawurlencode($sId) . '/',
+				'PROPFIND',
+				$aConfig['User'],
+				$sPassword,
+				$sBody,
+				['Content-Type: application/xml; charset=utf-8', 'Depth: 0']
+			);
+
+			// 404/410 mean the name is still free
+			if (\in_array($result['code'], [404, 410], true)) {
+				return $sId;
+			}
+			// Anything but "it exists" (auth/server error) is not worth retrying;
+			// let the MKCALENDAR report the real problem to the user.
+			if (207 !== $result['code']) {
+				return $sBase;
+			}
+		}
+
+		return $sBase . '-' . \strtolower(\substr(\md5(\uniqid('', true)), 0, 8));
+	}
+
+	/**
+	 * Whether a PROPPATCH/PROPFIND multistatus response contains a failed
+	 * property (a 4xx/5xx status anywhere in the document).
+	 */
+	private function calDAVMultistatusHasErrors(string $sXml) : bool
+	{
+		if ('' === \trim($sXml)) {
+			return false;
+		}
+		try {
+			$doc = new \DOMDocument();
+			$doc->loadXML($sXml);
+
+			$xpath = new \DOMXPath($doc);
+			$xpath->registerNamespace('D', 'DAV:');
+
+			foreach ($xpath->query('//D:propstat/D:status | //D:response/D:status') as $oStatus) {
+				if (\preg_match('#HTTP/\d(?:\.\d)?\s+(\d{3})#i', (string) $oStatus->nodeValue, $m)) {
+					$iCode = (int) $m[1];
+					if ($iCode >= 400) {
+						return true;
+					}
+				}
+			}
+		} catch (\Exception $e) {
+			// Unparsable body: treat as success, the HTTP code already passed
+		}
+		return false;
+	}
+
 	/**
 	 * Make CalDAV request
 	 */
@@ -530,12 +886,12 @@ class CaldavPlugin extends \RainLoop\Plugins\AbstractPlugin
 		curl_setopt($ch, CURLOPT_USERPWD, "{$username}:{$password}");
 		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
 		
-		$defaultHeaders = [
+		// Explicit headers win, so MKCALENDAR/DELETE/PUT do not have to carry
+		// the PROPFIND default "Depth: 1" (which some servers reject).
+		$allHeaders = $headers ?: [
 			'Content-Type: application/xml; charset=utf-8',
 			'Depth: 1'
 		];
-		
-		$allHeaders = array_merge($defaultHeaders, $headers);
 		curl_setopt($ch, CURLOPT_HTTPHEADER, $allHeaders);
 		
 		if ($body) {

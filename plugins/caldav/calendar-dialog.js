@@ -917,7 +917,10 @@ function buildDialog() {
 			</div>
 			<div class="mc-body">
 				<aside class="mc-sidebar">
-					<div class="mc-sidebar-title">Calendars</div>
+					<div class="mc-sidebar-head">
+						<div class="mc-sidebar-title">Calendars</div>
+						<button type="button" class="mc-cal-new" data-cal-newcalendar aria-label="New calendar" title="New calendar">+</button>
+					</div>
 					<div class="mc-cal-list"></div>
 				</aside>
 				<div class="mc-content"></div>
@@ -1026,6 +1029,36 @@ function buildDialog() {
 					</div>
 				</form>
 			</div>
+			<div class="mc-form mc-calform" data-cal-form-calendar hidden>
+				<div class="mc-form-overlay" data-cal-calform-close></div>
+				<form class="mc-form-window" autocomplete="off" novalidate>
+					<div class="mc-form-head">
+						<span class="mc-calform-title"></span>
+						<button type="button" class="mc-close" data-cal-calform-close aria-label="Close">×</button>
+					</div>
+					<div class="mc-form-body">
+						<label class="mc-field">
+							<span class="mc-field-label mc-lbl-calname"></span>
+							<input type="text" name="calname" maxlength="255" required>
+						</label>
+						<div class="mc-field">
+							<span class="mc-field-label mc-lbl-calcolor"></span>
+							<div class="mc-color-swatches"></div>
+							<label class="mc-color-custom">
+								<span class="mc-lbl-customcolor"></span>
+								<input type="color" name="calcolor" value="#00639a">
+							</label>
+						</div>
+						<div class="mc-form-error" hidden></div>
+						<div class="mc-form-actions">
+							<button type="button" class="mc-btn mc-btn-danger" data-cal-caldelete hidden></button>
+							<span class="mc-form-spacer"></span>
+							<button type="button" class="mc-btn" data-cal-calcancel></button>
+							<button type="submit" class="mc-btn mc-btn-primary" data-cal-calsave></button>
+						</div>
+					</div>
+				</form>
+			</div>
 		</div>`;
 
 	const q = selector => dialogEl.querySelector(selector);
@@ -1036,6 +1069,9 @@ function buildDialog() {
 	q('[data-cal-view="week"]').textContent = t('CALDAV/WEEK', 'Week');
 	q('[data-cal-view="month"]').textContent = t('CALDAV/MONTH', 'Month');
 	q('.mc-sidebar-title').textContent = t('CALDAV/CALENDARS', 'Calendars');
+	const newCalendarBtn = q('[data-cal-newcalendar]');
+	newCalendarBtn.title = t('CALDAV/NEW_CALENDAR', 'New calendar');
+	newCalendarBtn.setAttribute('aria-label', t('CALDAV/NEW_CALENDAR', 'New calendar'));
 	q('.mc-close').setAttribute('aria-label', t('CALDAV/CLOSE', 'Close'));
 	q('.mc-title-text').textContent = t('CALDAV/CALENDAR', 'Calendar');
 	q('[data-cal-sidebar-toggle]').setAttribute('aria-label', t('CALDAV/HIDE_CALENDARS', 'Hide calendar list'));
@@ -1070,6 +1106,30 @@ function buildDialog() {
 	q('[data-cal-save]').textContent = t('CALDAV/SAVE', 'Save');
 	q('.mc-form-title').textContent = t('CALDAV/NEW_EVENT', 'New event');
 	q('.mc-form-head .mc-close').setAttribute('aria-label', t('CALDAV/CLOSE', 'Close'));
+
+	// Calendar form labels / buttons
+	q('.mc-lbl-calname').textContent = t('CALDAV/CALENDAR_NAME', 'Name');
+	q('.mc-lbl-calcolor').textContent = t('CALDAV/CALENDAR_COLOR', 'Color');
+	q('.mc-lbl-customcolor').textContent = t('CALDAV/CUSTOM_COLOR', 'Custom');
+	q('[data-cal-caldelete]').textContent = t('CALDAV/DELETE', 'Delete');
+	q('[data-cal-calcancel]').textContent = t('CALDAV/CANCEL', 'Cancel');
+	q('[data-cal-calsave]').textContent = t('CALDAV/SAVE', 'Save');
+	q('.mc-calform-title').textContent = t('CALDAV/NEW_CALENDAR', 'New calendar');
+	q('.mc-calform .mc-form-head .mc-close').setAttribute('aria-label', t('CALDAV/CLOSE', 'Close'));
+
+	// Colour palette for the calendar form (the server falls back to the same
+	// colours when a calendar has no stored colour of its own).
+	const swatches = q('.mc-color-swatches');
+	CALENDAR_COLORS.forEach(color => {
+		const btn = document.createElement('button');
+		btn.type = 'button';
+		btn.className = 'mc-color-swatch';
+		btn.dataset.calColor = color;
+		btn.style.backgroundColor = color;
+		btn.title = color;
+		btn.setAttribute('aria-label', color);
+		swatches.appendChild(btn);
+	});
 
 	// Repeat frequency options
 	const repeatSel = q('[name="repeat"]');
@@ -1184,11 +1244,47 @@ function buildDialog() {
 	});
 	q('[data-cal-delete]').addEventListener('click', deleteEventForm);
 
+	// Calendar form (create / rename / recolor / delete a calendar)
+	q('.mc-calform .mc-form-window').addEventListener('submit', saveCalendarForm);
+	q('[data-cal-caldelete]').addEventListener('click', deleteCalendarForm);
+	q('[name="calcolor"]').addEventListener('input', () => {
+		markActiveColor(q('.mc-color-swatches'), q('[name="calcolor"]').value);
+	});
+	swatches.addEventListener('click', event => {
+		const btn = event.target.closest('[data-cal-color]');
+		if (!btn) {
+			return;
+		}
+		event.preventDefault();
+		selectColor(btn.dataset.calColor);
+	});
+
 	dialogEl.addEventListener('click', event => {
 		const target = event.target;
 		// Collapse/expand the calendar list (side panel)
 		if (target.closest('[data-cal-sidebar-toggle]')) {
 			toggleSidebar();
+			return;
+		}
+		// Calendar form interactions take priority over everything else
+		if (target.closest('[data-cal-form-calendar]')) {
+			if (target.closest('[data-cal-calform-close]') || target.closest('[data-cal-calcancel]')) {
+				closeCalendarForm();
+			}
+			return;
+		}
+		// "+" in the calendar list header creates a new calendar
+		if (target.closest('[data-cal-newcalendar]')) {
+			openCalendarForm(null);
+			return;
+		}
+		// The pencil on a calendar row edits that calendar
+		const calendarEdit = target.closest('[data-cal-edit]');
+		if (calendarEdit) {
+			const calendar = findCalendar(calendarEdit.dataset.calEdit);
+			if (calendar) {
+				openCalendarForm(calendar);
+			}
 			return;
 		}
 		// Event form interactions take priority
@@ -1276,8 +1372,11 @@ function buildDialog() {
 
 function onKeydown(event) {
 	if (event.key === 'Escape') {
+		const calForm = dialogEl && dialogEl.querySelector('[data-cal-form-calendar]');
 		const form = dialogEl && dialogEl.querySelector('[data-cal-form]');
-		if (form && !form.hidden) {
+		if (calForm && !calForm.hidden) {
+			closeCalendarForm();
+		} else if (form && !form.hidden) {
 			closeEventForm();
 		} else {
 			closeDialog();
@@ -1315,6 +1414,10 @@ function closeDialog() {
 		if (form) {
 			form.hidden = true;
 		}
+		const calForm = dialogEl.querySelector('[data-cal-form-calendar]');
+		if (calForm) {
+			calForm.hidden = true;
+		}
 	}
 	startPicker && startPicker.close();
 	endPicker && endPicker.close();
@@ -1322,6 +1425,7 @@ function closeDialog() {
 	hideContactSuggestions();
 	editingEvent = null;
 	editingSeries = null;
+	editingCalendar = null;
 	participants = [];
 	document.removeEventListener('keydown', onKeydown, true);
 }
@@ -1334,13 +1438,49 @@ async function loadCalendars() {
 	renderSidebar();
 	renderContent();
 	try {
-		const result = await request('GetCalendars', {});
-		let calendars = (result && result.calendars) || [];
-		if (!calendars.length) {
-			calendars = [{id: 'default', name: t('CALDAV/CALENDAR', 'Calendar'), color: '#00639a'}];
-		}
-		state.calendars = calendars;
-		state.selected = new Set(calendars.map(c => c.id));
+		state.calendars = await fetchCalendars();
+		state.selected = new Set(state.calendars.map(c => c.id));
+		await loadEvents();
+	} catch (e) {
+		state.error = (e && e.message) || t('CALDAV/FAILED_LOAD_CALENDARS', 'Failed to load calendars');
+	}
+	state.loading = false;
+	renderSidebar();
+	renderContent();
+}
+
+// Fetch the calendar list from the server, always returning at least one entry
+// so the dialog keeps working when discovery fails.
+async function fetchCalendars() {
+	const result = await request('GetCalendars', {});
+	let calendars = (result && result.calendars) || [];
+	if (!calendars.length) {
+		calendars = [{
+			id: 'default',
+			name: t('CALDAV/CALENDAR', 'Calendar'),
+			color: '#00639a',
+			readOnly: true
+		}];
+	}
+	return calendars;
+}
+
+// Re-read the calendar list after a calendar was created, renamed or deleted.
+// The user's checked calendars are preserved, calendars that no longer exist
+// are dropped and a freshly created one is selected automatically.
+async function reloadCalendars(selectId) {
+	const previousIds = new Set(state.calendars.map(c => c.id));
+	const selected = new Set(state.selected);
+
+	state.loading = true;
+	state.error = '';
+	renderSidebar();
+	renderContent();
+	try {
+		state.calendars = await fetchCalendars();
+		state.selected = new Set(state.calendars
+			.filter(c => selected.has(c.id) || !previousIds.has(c.id) || c.id === selectId)
+			.map(c => c.id));
 		await loadEvents();
 	} catch (e) {
 		state.error = (e && e.message) || t('CALDAV/FAILED_LOAD_CALENDARS', 'Failed to load calendars');
@@ -2119,6 +2259,165 @@ async function deleteEventForm() {
 	}
 }
 
+/* ---------------------------------------------------------- calendar form */
+
+// Colours offered in the calendar form. Mirrors the palette the plugin uses on
+// the server when a calendar has no colour of its own.
+const CALENDAR_COLORS = [
+	'#00639a', '#16a765', '#e67c73', '#f6bf26', '#8e24aa', '#f4511e', '#039be5', '#7cb342',
+	'#d81b60', '#5e35b1', '#3949ab', '#00897b', '#6d4c41', '#546e7a', '#f09300', '#c0ca33'
+];
+
+// The calendar currently being edited (null when creating a new calendar)
+let editingCalendar = null;
+
+function findCalendar(id) {
+	return state.calendars.find(calendar => calendar.id === id) || null;
+}
+
+// Normalise a colour to "#rrggbb" ('' when it is not a usable colour value).
+function normalizeColor(value) {
+	const match = ('' + (value == null ? '' : value)).trim().toLowerCase().match(/^#?([0-9a-f]{6})/);
+	return match ? '#' + match[1] : '';
+}
+
+function calendarFormEls() {
+	const root = dialogEl.querySelector('[data-cal-form-calendar]');
+	return {
+		root: root,
+		name: root.querySelector('[name="calname"]'),
+		color: root.querySelector('[name="calcolor"]'),
+		swatches: root.querySelector('.mc-color-swatches'),
+		error: root.querySelector('.mc-form-error'),
+		del: root.querySelector('[data-cal-caldelete]'),
+		save: root.querySelector('[data-cal-calsave]')
+	};
+}
+
+function showCalendarFormError(el, message) {
+	el.error.textContent = message;
+	el.error.hidden = !message;
+}
+
+// Highlight the swatch matching $color (none when it is a custom colour).
+function markActiveColor(swatches, color) {
+	const value = normalizeColor(color);
+	swatches.querySelectorAll('[data-cal-color]').forEach(btn => {
+		btn.classList.toggle('active', normalizeColor(btn.dataset.calColor) === value);
+	});
+}
+
+function selectColor(color) {
+	const el = calendarFormEls();
+	const value = normalizeColor(color) || CALENDAR_COLORS[0];
+	el.color.value = value;
+	markActiveColor(el.swatches, value);
+}
+
+// Open the form. Pass an existing calendar to edit it, or null to create one.
+function openCalendarForm(calendar) {
+	if (!dialogEl) {
+		return;
+	}
+	const el = calendarFormEls();
+	editingCalendar = calendar || null;
+	showCalendarFormError(el, '');
+
+	el.root.querySelector('.mc-calform-title').textContent = calendar
+		? t('CALDAV/EDIT_CALENDAR', 'Edit calendar')
+		: t('CALDAV/NEW_CALENDAR', 'New calendar');
+	el.name.value = calendar ? (calendar.name || '') : '';
+	selectColor(calendar ? calendar.color : CALENDAR_COLORS[0]);
+	el.del.hidden = !calendar;
+
+	el.root.hidden = false;
+	setTimeout(() => el.name.focus(), 20);
+}
+
+function closeCalendarForm() {
+	if (dialogEl) {
+		const root = dialogEl.querySelector('[data-cal-form-calendar]');
+		if (root) {
+			root.hidden = true;
+		}
+	}
+	editingCalendar = null;
+}
+
+async function saveCalendarForm(event) {
+	if (event) {
+		event.preventDefault();
+	}
+	const el = calendarFormEls();
+	const name = el.name.value.trim();
+	if (!name) {
+		showCalendarFormError(el, t('CALDAV/ERROR_CALENDAR_NAME_REQUIRED', 'Calendar name required'));
+		return;
+	}
+	const color = normalizeColor(el.color.value) || CALENDAR_COLORS[0];
+
+	showCalendarFormError(el, '');
+	el.save.disabled = true;
+	try {
+		if (editingCalendar) {
+			await saveEventRequest('UpdateCalendar', {
+				CalendarId: editingCalendar.id,
+				CalendarUrl: editingCalendar.url || '',
+				Name: name,
+				Color: color
+			});
+			// Apply the change locally so the grid updates without a round trip
+			state.calendars.forEach(calendar => {
+				if (calendar.id === editingCalendar.id) {
+					calendar.name = name;
+					calendar.color = color;
+				}
+			});
+			state.events.forEach(series => {
+				if (series.calendarId === editingCalendar.id) {
+					series.color = color;
+				}
+			});
+			closeCalendarForm();
+			renderSidebar();
+			renderContent();
+		} else {
+			const result = await saveEventRequest('CreateCalendar', {Name: name, Color: color});
+			closeCalendarForm();
+			await reloadCalendars((result && result.id) || '');
+		}
+	} catch (e) {
+		showCalendarFormError(el, (e && e.message) || t('CALDAV/REQUEST_FAILED', 'Request failed'));
+	} finally {
+		el.save.disabled = false;
+	}
+}
+
+async function deleteCalendarForm() {
+	const el = calendarFormEls();
+	if (!editingCalendar) {
+		return;
+	}
+	if (!window.confirm(t('CALDAV/DELETE_CALENDAR_CONFIRM', 'Delete this calendar and all its events?'))) {
+		return;
+	}
+
+	showCalendarFormError(el, '');
+	el.del.disabled = true;
+	try {
+		await saveEventRequest('DeleteCalendar', {
+			CalendarId: editingCalendar.id,
+			CalendarUrl: editingCalendar.url || ''
+		});
+		closeCalendarForm();
+		await reloadCalendars();
+	} catch (e) {
+		showCalendarFormError(el, (e && e.message) || t('CALDAV/REQUEST_FAILED', 'Request failed'));
+	} finally {
+		el.del.disabled = false;
+	}
+}
+
 /* ------------------------------------------------------------------ render */
 
 // The date range covered by the current view (end exclusive).
@@ -2207,14 +2506,22 @@ function renderSidebar() {
 			+ '</div>';
 		return;
 	}
-	list.innerHTML = state.calendars.map(calendar =>
-		'<label class="mc-cal-item">'
-		+ '<input type="checkbox" data-cal-id="' + esc(calendar.id) + '"'
-		+ (state.selected.has(calendar.id) ? ' checked' : '') + '>'
-		+ '<span class="mc-cal-dot" style="background-color:' + esc(calendar.color) + '"></span>'
-		+ '<span class="mc-cal-name">' + esc(calendar.name) + '</span>'
-		+ '</label>'
-	).join('');
+	const editLabel = t('CALDAV/EDIT_CALENDAR', 'Edit calendar');
+	list.innerHTML = state.calendars.map(calendar => {
+		const edit = calendar.readOnly
+			? ''
+			: '<button type="button" class="mc-cal-edit" data-cal-edit="' + esc(calendar.id) + '"'
+				+ ' title="' + esc(editLabel) + '" aria-label="' + esc(editLabel) + '">✏</button>';
+		return '<div class="mc-cal-item">'
+			+ '<label class="mc-cal-check">'
+			+ '<input type="checkbox" data-cal-id="' + esc(calendar.id) + '"'
+			+ (state.selected.has(calendar.id) ? ' checked' : '') + '>'
+			+ '<span class="mc-cal-dot" style="background-color:' + esc(calendar.color) + '"></span>'
+			+ '<span class="mc-cal-name">' + esc(calendar.name) + '</span>'
+			+ '</label>'
+			+ edit
+			+ '</div>';
+	}).join('');
 }
 
 function renderContent() {
