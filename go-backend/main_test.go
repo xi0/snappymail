@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -10,8 +11,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/xi0/snappymail/go-backend/internal/config"
 	"github.com/xi0/snappymail/go-backend/internal/httpx"
 	"github.com/xi0/snappymail/go-backend/internal/logx"
+	"github.com/xi0/snappymail/go-backend/internal/web"
 )
 
 // phpLineShape is the prefix layout of \MailSo\Log\Driver::Write():
@@ -239,7 +242,7 @@ func TestNewHandlerServesPingAndIndex(t *testing.T) {
 		t.Fatalf("resolveInstallTree: %v", err)
 	}
 
-	handler := newHandler(tree, nil)
+	handler := newHandler(tree, nil, nil)
 
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/?/Ping/0/", nil))
@@ -276,7 +279,7 @@ func TestNewHandlerServesRepoStaticAssets(t *testing.T) {
 		t.Fatalf("resolveInstallTree: %v", err)
 	}
 
-	handler := newHandler(tree, nil)
+	handler := newHandler(tree, nil, nil)
 
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder,
@@ -307,6 +310,130 @@ func TestNewHandlerServesRepoStaticAssets(t *testing.T) {
 		if http.StatusNotFound != recorder.Code {
 			t.Errorf("GET %s = %d, want 404", target, recorder.Code)
 		}
+	}
+}
+
+func TestLoadApplicationCreatesAndAppliesConfiguration(t *testing.T) {
+	root := t.TempDir()
+
+	tree, err := resolveInstallTree(options{root: root, version: "0.0.0"})
+	if nil != err {
+		t.Fatalf("resolveInstallTree: %v", err)
+	}
+
+	logger, err := newLogger(options{
+		logLevel:    int(logx.Warning),
+		logFile:     "stderr",
+		logTimeZone: "UTC",
+	}, tree)
+	if nil != err {
+		t.Fatalf("newLogger: %v", err)
+	}
+
+	// The first start writes configs/application.ini like setup.php.
+	application, err := loadApplication(tree, logger)
+	if nil != err {
+		t.Fatalf("loadApplication: %v", err)
+	}
+
+	configFile := filepath.Join(tree.privateData, "configs", "application.ini")
+	content, err := os.ReadFile(configFile)
+	if nil != err {
+		t.Fatalf("read %s: %v", configFile, err)
+	}
+	if !strings.HasPrefix(string(content), "; SnappyMail configuration file\n") {
+		t.Errorf("%s does not start with the PHP header:\n%s", configFile, content)
+	}
+	if got := application.GetString("security", "custom_server_signature", ""); "SnappyMail" != got {
+		t.Errorf("custom_server_signature = %q, want SnappyMail", got)
+	}
+
+	// An operator edited file feeds the request pipeline.
+	edited := "[webmail]\n" +
+		"app_path = \"/mail\"\n" +
+		"compress_output = On\n" +
+		"\n" +
+		"[security]\n" +
+		"force_https = On\n" +
+		"\n" +
+		"[admin_panel]\n" +
+		"key = \"manage\"\n"
+	if err := os.WriteFile(configFile, []byte(edited), 0o600); nil != err {
+		t.Fatalf("write %s: %v", configFile, err)
+	}
+
+	application, err = loadApplication(tree, logger)
+	if nil != err {
+		t.Fatalf("loadApplication: %v", err)
+	}
+
+	pipeline := pipelineConfig(application)
+	if !pipeline.ForceHTTPS {
+		t.Error("security.force_https = On must enable the https redirect")
+	}
+	if !pipeline.CompressOutput {
+		t.Error("webmail.compress_output = On must enable output compression")
+	}
+	if "manage" != pipeline.AdminKey {
+		t.Errorf("admin_panel.key = %q, want manage", pipeline.AdminKey)
+	}
+
+	router, ok := newHandler(tree, logger, application).(*web.Router)
+	if !ok {
+		t.Fatal("newHandler must return the request router")
+	}
+	if "/mail" != router.Paths().AppPath {
+		t.Errorf("WebPaths.AppPath = %q, want the webmail.app_path value /mail", router.Paths().AppPath)
+	}
+}
+
+func TestLoadApplicationReportsServerBusy(t *testing.T) {
+	root := t.TempDir()
+
+	tree, err := resolveInstallTree(options{root: root, version: "0.0.0"})
+	if nil != err {
+		t.Fatalf("resolveInstallTree: %v", err)
+	}
+
+	logger, err := newLogger(options{
+		logLevel:    int(logx.Warning),
+		logFile:     "stderr",
+		logTimeZone: "UTC",
+	}, tree)
+	if nil != err {
+		t.Fatalf("newLogger: %v", err)
+	}
+
+	// logConfigError must not panic on either error shape.
+	logConfigError(logger, &config.ServerBusy{Load: 9.5, Message: "Mailserver too busy (9.5)."})
+	logConfigError(logger, errors.New("no configuration"))
+}
+
+func TestEnvironmentSnapshot(t *testing.T) {
+	t.Setenv("SNAPPYMAIL_TEST_VARIABLE", "value")
+
+	environment := environment()
+	if "value" != environment["SNAPPYMAIL_TEST_VARIABLE"] {
+		t.Errorf("SNAPPYMAIL_TEST_VARIABLE = %q, want value", environment["SNAPPYMAIL_TEST_VARIABLE"])
+	}
+}
+
+func TestIsFile(t *testing.T) {
+	directory := t.TempDir()
+	file := filepath.Join(directory, "file.txt")
+
+	if err := os.WriteFile(file, []byte("x"), 0o600); nil != err {
+		t.Fatalf("write: %v", err)
+	}
+
+	if !isFile(file) {
+		t.Errorf("isFile(%q) = false, want true", file)
+	}
+	if isFile(directory) {
+		t.Errorf("isFile(%q) = true for a directory", directory)
+	}
+	if isFile(filepath.Join(directory, "missing")) {
+		t.Error("isFile() = true for a missing file")
 	}
 }
 

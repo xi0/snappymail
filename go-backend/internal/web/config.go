@@ -6,10 +6,11 @@ package web
 
 // Config carries the configs/application.ini values the request pipeline needs.
 //
-// Step 3 adds the config package that loads application.ini; it maps the loaded
-// values onto this struct. Until then main.go uses DefaultConfig(), which holds
-// the RainLoop\Config\Application::defaultValues() defaults, so the pipeline
-// behaves like a fresh PHP install.
+// internal/config loads application.ini (step 3) and main.go maps the loaded
+// values onto this struct, because internal/web must not depend on
+// internal/config. DefaultConfig() holds the
+// RainLoop\Config\Application::defaultValues() defaults, so the pipeline
+// behaves like a fresh PHP install when it is used instead.
 type Config struct {
 	// ServerSignature is security.custom_server_signature. When empty no
 	// Server header is sent at all (PHP: strlen() check in RunResult()).

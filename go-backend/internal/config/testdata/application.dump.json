@@ -1,0 +1,168 @@
+{
+  "admin_panel": {
+    "allow_update": false,
+    "host": "",
+    "key": "admin",
+    "language": "en"
+  },
+  "cache": {
+    "enable": true,
+    "fast_cache_index": "v1",
+    "http": true,
+    "http_expires": 3600,
+    "index": "v1",
+    "path": "",
+    "server_uids": true,
+    "system_data": true
+  },
+  "capa": {
+    "attachments_actions": true,
+    "dangerous_actions": true
+  },
+  "contacts": {
+    "allow_sync": false,
+    "enable": false,
+    "mysql_ssl_ca": "",
+    "mysql_ssl_ciphers": "",
+    "mysql_ssl_verify": true,
+    "pdo_dsn": "host=127.0.0.1;port=3306;dbname=snappymail",
+    "pdo_password": "",
+    "pdo_user": "root",
+    "sqlite_global": false,
+    "suggestions_limit": 20,
+    "sync_interval": 20,
+    "type": "sqlite"
+  },
+  "debug": {
+    "css": false,
+    "enable": false,
+    "javascript": false
+  },
+  "defaults": {
+    "allow_draft_autosave": true,
+    "allow_spellcheck": false,
+    "autologout": 30,
+    "collapse_blockquotes": true,
+    "contacts_autosave": true,
+    "mail_list_grouped": false,
+    "mail_reply_same_folder": false,
+    "mail_use_threads": false,
+    "msg_default_action": 1,
+    "show_images": false,
+    "view_editor_type": "Html",
+    "view_html": true,
+    "view_images": "ask",
+    "view_layout": 1,
+    "view_show_next_message": true,
+    "view_use_checkboxes": true
+  },
+  "imap": {
+    "fetch_new_messages": true,
+    "message_all_headers": false,
+    "message_list_fast_simple_search": true,
+    "message_list_permanent_filter": "",
+    "show_login_alert": true,
+    "use_expunge_all_on_delete": false,
+    "use_force_selection": false
+  },
+  "interface": {
+    "show_attachment_thumbnail": true
+  },
+  "labs": {
+    "allow_message_append": false,
+    "boundary_prefix": "",
+    "cookie_default_path": "",
+    "cookie_default_secure": false,
+    "curl_proxy": "",
+    "curl_proxy_auth": "",
+    "custom_login_link": "",
+    "custom_logout_link": "",
+    "dev_email": "",
+    "dev_password": "",
+    "folders_spec_limit": 50,
+    "http_client_ip_check_proxy": false,
+    "image_exif_auto_rotate": false,
+    "mail_func_additional_parameters": false,
+    "mail_func_clear_headers": true,
+    "replace_env_in_configuration": "",
+    "smtp_show_server_errors": false,
+    "use_local_proxy_for_external_images": true
+  },
+  "login": {
+    "allow_languages_on_login": true,
+    "default_domain": "",
+    "determine_user_domain": false,
+    "determine_user_language": true,
+    "fault_delay": 5,
+    "sign_me_auto": "DefaultOff"
+  },
+  "logs": {
+    "auth_logging": false,
+    "auth_logging_filename": "fail2ban/auth-{date:Y-m-d}.txt",
+    "auth_logging_format": "[{date:Y-m-d H:i:s}] Auth failed: ip={request:ip} user={imap:login} host={imap:host} port={imap:port}",
+    "auth_syslog": false,
+    "enable": false,
+    "filename": "log-{date:Y-m-d}.txt",
+    "hide_passwords": true,
+    "json_response_write_limit": 300,
+    "level": 4,
+    "path": "",
+    "time_zone": "UTC"
+  },
+  "plugins": {
+    "enable": false,
+    "enabled_list": ""
+  },
+  "security": {
+    "admin_login": "admin",
+    "admin_password": "",
+    "admin_totp": "",
+    "allow_admin_panel": true,
+    "auto_verify_signatures": false,
+    "content_security_policy": "",
+    "cookie_samesite": "Strict",
+    "csp_report": false,
+    "custom_server_signature": "SnappyMail",
+    "encrypt_cipher": "aes-256-cbc-hmac-sha1",
+    "force_https": false,
+    "gnupg": true,
+    "hide_x_mailer_header": true,
+    "insecure_cryptkey": false,
+    "max_sys_getloadavg": 0,
+    "openpgp": true,
+    "secfetch_allow": "",
+    "x_xss_protection_header": "1; mode=block"
+  },
+  "ssl": {
+    "allow_self_signed": false,
+    "cafile": "",
+    "capath": "",
+    "disable_compression": true,
+    "local_cert": "",
+    "security_level": 1,
+    "verify_certificate": true
+  },
+  "version": {
+    "current": "0.0.0",
+    "saved": "Tue, 02 Jan 2024 03:04:05 +0000"
+  },
+  "webmail": {
+    "allow_additional_accounts": true,
+    "allow_additional_identities": true,
+    "allow_languages_on_settings": true,
+    "allow_themes": true,
+    "allow_user_background": false,
+    "app_path": "",
+    "attachment_size_limit": 2,
+    "compress_output": false,
+    "favicon_url": "",
+    "language": "en",
+    "loading_description": "SnappyMail",
+    "message_read_delay": 5,
+    "messages_per_page": 20,
+    "min_refresh_interval": 5,
+    "popup_identity": true,
+    "theme": "Gazellemail",
+    "title": "SnappyMail Webmail"
+  }
+}

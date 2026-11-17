@@ -1,11 +1,13 @@
 // Command go-backend is the Go implementation of the SnappyMail backend.
 //
 // Phase 0 step 1 provided a binary that starts, logs like the PHP backend and
-// shuts down cleanly. Phase 1 step 2 adds the request pipeline: the
-// query-string path vector of RainLoop\Service::RunResult(), the security
-// headers, the force_https redirect, output compression, the admin panel and
-// Sec-Fetch gates and the static asset whitelist (internal/web). Routing to the
-// real Service* endpoints and the JSON actions is filled in by steps 9–13.
+// shuts down cleanly. Step 2 adds the request pipeline: the query-string path
+// vector of RainLoop\Service::RunResult(), the security headers, the
+// force_https redirect, output compression, the admin panel and Sec-Fetch gates
+// and the static asset whitelist (internal/web). Step 3 loads
+// configs/application.ini (internal/config) and maps it onto that pipeline.
+// Routing to the real Service* endpoints and the JSON actions is filled in by
+// steps 9–13.
 //
 // The pieces below are the ones the later steps need to stay compatible with:
 //
@@ -13,7 +15,8 @@
 //     APP_DATA_FOLDER_PATH, APP_PRIVATE_DATA), see include.php;
 //   - the log line format and the log filename patterns of
 //     RainLoop\Actions::compileLogParams()/compileLogFileName() and
-//     \MailSo\Log\Driver.
+//     \MailSo\Log\Driver;
+//   - the application.ini file layout and typing rules, see internal/config.
 package main
 
 import (
@@ -32,6 +35,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/xi0/snappymail/go-backend/internal/config"
 	"github.com/xi0/snappymail/go-backend/internal/httpx"
 	"github.com/xi0/snappymail/go-backend/internal/logx"
 	"github.com/xi0/snappymail/go-backend/internal/service"
@@ -125,8 +129,15 @@ func run(args []string, started time.Time) error {
 
 	logBootLine(logger, tree, opts)
 
+	// configs/application.ini; the Application keeps the defaults when the file
+	// cannot be loaded, so it is always usable.
+	application, err := loadApplication(tree, logger)
+	if nil != err {
+		logConfigError(logger, err)
+	}
+
 	server := &http.Server{
-		Handler:           newHandler(tree, logger),
+		Handler:           newHandler(tree, logger, application),
 		ReadHeaderTimeout: 30 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}
@@ -352,22 +363,111 @@ func logShutdownLine(logger *logx.Logger, started time.Time) {
 
 // newHandler builds the request pipeline of step 2.
 //
-// Configuration still comes from web.DefaultConfig(): step 3 loads
-// configs/application.ini and maps it onto web.Config, step 11 replaces
+// Step 3 maps configs/application.ini onto web.Config, step 11 replaces
 // web.DefaultIndex with the pages package and steps 9–13 register the real
-// service endpoints next to the Ping stub.
-func newHandler(tree installTree, logger *logx.Logger) http.Handler {
+// service endpoints next to the Ping stub. A nil application falls back to the
+// pipeline defaults.
+func newHandler(tree installTree, logger *logx.Logger, application *config.Application) http.Handler {
+	pipeline := web.DefaultConfig()
+	appPath := ""
+
+	if nil != application {
+		pipeline = pipelineConfig(application)
+		appPath = application.GetString("webmail", "app_path", "")
+	}
+
 	paths := httpx.WebPaths{
-		AppPath:     "", // webmail.app_path, configured in step 3
+		AppPath:     appPath,
 		Version:     tree.version,
 		VersionRoot: tree.versionRoot,
 	}
 
-	router := web.NewRouter(web.DefaultConfig(), logger, paths, nil)
+	router := web.NewRouter(pipeline, logger, paths, nil)
 
 	service.Register(router)
 
 	return router
+}
+
+// loadApplication reads configs/application.ini like
+// RainLoop\Config\Application does.
+//
+// The returned Application is usable even when err is not nil: it then still
+// holds the defaultValues() defaults, which is also what PHP falls back to when
+// the file cannot be written.
+func loadApplication(tree installTree, logger *logx.Logger) (*config.Application, error) {
+	application := config.NewApplication(
+		filepath.Join(tree.privateData, "configs", "application.ini"),
+		tree.version,
+		config.Defaults{
+			// Go has no php.ini, so the zero value falls back to PHP's built-in
+			// upload_max_filesize of 2M for webmail.attachment_size_limit.
+			AddressBookExists: isFile(filepath.Join(tree.privateData, "AddressBook.sqlite")),
+		},
+	)
+
+	application.Env = environment()
+	application.LoadAverage = config.SystemLoadAverage
+	application.Logf = func(category, message string) {
+		logger.Warningf("%s: %s", category, message)
+	}
+
+	return application, application.Load()
+}
+
+// logConfigError reports a configuration problem without stopping the server.
+func logConfigError(logger *logx.Logger, err error) {
+	// The security.max_sys_getloadavg guard becomes an HTTP 503 in step 33;
+	// until then the request is served so an operator can reach the admin panel.
+	var busy *config.ServerBusy
+	if errors.As(err, &busy) {
+		logger.Warningf("%s (Retry-After: %d)", busy.Message, config.RetryAfter)
+		return
+	}
+
+	logger.Warningf("configuration not loaded, using the defaults: %v", err)
+}
+
+// pipelineConfig maps application.ini onto the request pipeline settings. It
+// lives here so internal/web stays independent of internal/config.
+func pipelineConfig(application *config.Application) web.Config {
+	return web.Config{
+		ServerSignature:          application.GetString("security", "custom_server_signature", ""),
+		XSSProtectionHeader:      application.GetString("security", "x_xss_protection_header", ""),
+		ForceHTTPS:               application.GetBool("security", "force_https", false),
+		AllowAdminPanel:          application.GetBool("security", "allow_admin_panel", true),
+		AdminHost:                application.GetString("admin_panel", "host", ""),
+		AdminKey:                 application.GetString("admin_panel", "key", "admin"),
+		CompressOutput:           application.GetBool("webmail", "compress_output", false),
+		ContentSecurityPolicy:    application.GetString("security", "content_security_policy", ""),
+		CSPReport:                application.GetBool("security", "csp_report", false),
+		SecFetchAllow:            application.GetString("security", "secfetch_allow", ""),
+		TrustProxyClientIP:       application.GetBool("labs", "http_client_ip_check_proxy", false),
+		FaviconURL:               application.GetString("webmail", "favicon_url", ""),
+		LocalProxyExternalImages: application.GetBool("labs", "use_local_proxy_for_external_images", true),
+		Debug:                    application.GetBool("debug", "enable", false),
+	}
+}
+
+// environment snapshots the process environment, the Go equivalent of the $_ENV
+// array labs.replace_env_in_configuration substitutes from.
+func environment() map[string]string {
+	variables := os.Environ()
+
+	result := make(map[string]string, len(variables))
+	for _, variable := range variables {
+		if name, value, found := strings.Cut(variable, "="); found {
+			result[name] = value
+		}
+	}
+
+	return result
+}
+
+// isFile mirrors PHP's is_file().
+func isFile(name string) bool {
+	info, err := os.Stat(name)
+	return nil == err && info.Mode().IsRegular()
 }
 
 // withTrailingSeparator returns path ending with the OS separator, like the
