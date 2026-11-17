@@ -1,9 +1,13 @@
 // Command go-backend is the Go implementation of the SnappyMail backend.
 //
-// Phase 0 step 1: a binary that starts, logs like the PHP backend and shuts
-// down cleanly. Routing (step 2), application.ini (step 3) and everything else
-// is wired in by the following steps; the pieces below are the ones the later
-// steps need to stay compatible with:
+// Phase 0 step 1 provided a binary that starts, logs like the PHP backend and
+// shuts down cleanly. Phase 1 step 2 adds the request pipeline: the
+// query-string path vector of RainLoop\Service::RunResult(), the security
+// headers, the force_https redirect, output compression, the admin panel and
+// Sec-Fetch gates and the static asset whitelist (internal/web). Routing to the
+// real Service* endpoints and the JSON actions is filled in by steps 9–13.
+//
+// The pieces below are the ones the later steps need to stay compatible with:
 //
 //   - the install tree layout (APP_INDEX_ROOT_PATH, APP_VERSION_ROOT_PATH,
 //     APP_DATA_FOLDER_PATH, APP_PRIVATE_DATA), see include.php;
@@ -28,7 +32,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/xi0/snappymail/go-backend/internal/httpx"
 	"github.com/xi0/snappymail/go-backend/internal/logx"
+	"github.com/xi0/snappymail/go-backend/internal/service"
+	"github.com/xi0/snappymail/go-backend/internal/web"
 )
 
 const (
@@ -119,7 +126,7 @@ func run(args []string, started time.Time) error {
 	logBootLine(logger, tree, opts)
 
 	server := &http.Server{
-		Handler:           newPlaceholderHandler(logger),
+		Handler:           newHandler(tree, logger),
 		ReadHeaderTimeout: 30 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}
@@ -338,49 +345,29 @@ func logShutdownLine(logger *logx.Logger, started time.Time) {
 	var stats runtime.MemStats
 	runtime.ReadMemStats(&stats)
 
-	logger.Infof("Memory peak usage: %s", formatFileSize(int64(stats.Sys)))
+	// PHP: \MailSo\Base\Utils::FormatFileSize(\memory_get_peak_usage(true), 2)
+	logger.Infof("Memory peak usage: %s", httpx.FormatFileSize(int64(stats.Sys), 2))
 	logger.Infof("Time delta: %f", time.Since(started).Seconds())
 }
 
-// newPlaceholderHandler is the temporary handler for step 1.
+// newHandler builds the request pipeline of step 2.
 //
-// Step 2 replaces it with web.Router (query-string path vector, security
-// headers, static whitelist, ...). For now every request is answered so the
-// graceful shutdown path has something to drain.
-func newPlaceholderHandler(logger *logx.Logger) http.Handler {
-	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		logger.Infof("%s %s %s from %s",
-			request.Method, request.Host, request.URL.RequestURI(), request.RemoteAddr)
-
-		writer.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		writer.WriteHeader(http.StatusOK)
-		_, _ = writer.Write([]byte("SnappyMail Go backend (Phase 0 step 1 skeleton)\n"))
-	})
-}
-
-// formatFileSize is \MailSo\Base\Utils::FormatFileSize() with the PHP rounding.
-// It moves to httpx once that package exists (step 2).
-func formatFileSize(size int64) string {
-	units := []string{"B", "KB", "MB"}
-	index := 0
-
-	value := float64(size)
-	for value > 1024 && index+1 < len(units) {
-		value /= 1024
-		index++
+// Configuration still comes from web.DefaultConfig(): step 3 loads
+// configs/application.ini and maps it onto web.Config, step 11 replaces
+// web.DefaultIndex with the pages package and steps 9–13 register the real
+// service endpoints next to the Ping stub.
+func newHandler(tree installTree, logger *logx.Logger) http.Handler {
+	paths := httpx.WebPaths{
+		AppPath:     "", // webmail.app_path, configured in step 3
+		Version:     tree.version,
+		VersionRoot: tree.versionRoot,
 	}
 
-	return strconv.FormatFloat(roundHalfUp(value, 2), 'f', -1, 64) + units[index]
-}
+	router := web.NewRouter(web.DefaultConfig(), logger, paths, nil)
 
-// roundHalfUp rounds like PHP's round($value, $precision).
-func roundHalfUp(value float64, precision int) float64 {
-	factor := 1.0
-	for i := 0; i < precision; i++ {
-		factor *= 10
-	}
+	service.Register(router)
 
-	return float64(int64(value*factor+0.5)) / factor
+	return router
 }
 
 // withTrailingSeparator returns path ending with the OS separator, like the

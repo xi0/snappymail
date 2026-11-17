@@ -1,6 +1,8 @@
 package main
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -8,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/xi0/snappymail/go-backend/internal/httpx"
 	"github.com/xi0/snappymail/go-backend/internal/logx"
 )
 
@@ -228,6 +231,85 @@ func TestNewLoggerRejectsBadTimeZone(t *testing.T) {
 	}
 }
 
+func TestNewHandlerServesPingAndIndex(t *testing.T) {
+	root := t.TempDir()
+
+	tree, err := resolveInstallTree(options{root: root, version: "0.0.0"})
+	if nil != err {
+		t.Fatalf("resolveInstallTree: %v", err)
+	}
+
+	handler := newHandler(tree, nil)
+
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/?/Ping/0/", nil))
+
+	if http.StatusOK != recorder.Code {
+		t.Fatalf("Ping status = %d, want 200", recorder.Code)
+	}
+	if "Pong" != recorder.Body.String() {
+		t.Errorf("Ping body = %q, want Pong", recorder.Body.String())
+	}
+
+	// Everything else serves the index stub until step 11.
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/whatever", nil))
+
+	if http.StatusOK != recorder.Code {
+		t.Fatalf("index status = %d, want 200", recorder.Code)
+	}
+	if !strings.Contains(recorder.Body.String(), "SnappyMail") {
+		t.Errorf("index body = %q", recorder.Body.String())
+	}
+}
+
+func TestNewHandlerServesRepoStaticAssets(t *testing.T) {
+	// The step-2 acceptance check runs against the real install tree: the
+	// minified bundle is served, the sources and private data are not.
+	root, err := filepath.Abs("..")
+	if nil != err {
+		t.Fatalf("resolve repository root: %v", err)
+	}
+
+	tree, err := resolveInstallTree(options{root: root, version: "0.0.0"})
+	if nil != err {
+		t.Fatalf("resolveInstallTree: %v", err)
+	}
+
+	handler := newHandler(tree, nil)
+
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder,
+		httptest.NewRequest(http.MethodGet, "/snappymail/v/0.0.0/static/js/min/app.min.js", nil))
+
+	if http.StatusOK != recorder.Code {
+		t.Fatalf("app.min.js status = %d, want 200", recorder.Code)
+	}
+	if got := recorder.Header().Get("Content-Type"); "application/javascript" != got {
+		t.Errorf("app.min.js Content-Type = %q, want application/javascript", got)
+	}
+	if 0 == recorder.Body.Len() {
+		t.Error("app.min.js body is empty")
+	}
+
+	unavailable := []string{
+		"/snappymail/v/0.0.0/app/libraries/RainLoop/Api.php",
+		"/snappymail/v/0.0.0/static/apache.htaccess",
+		"/include.php",
+		"/data/README.md",
+		"/plugins/caldav/index.php",
+	}
+
+	for _, target := range unavailable {
+		recorder = httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, target, nil))
+
+		if http.StatusNotFound != recorder.Code {
+			t.Errorf("GET %s = %d, want 404", target, recorder.Code)
+		}
+	}
+}
+
 func TestFormatFileSize(t *testing.T) {
 	tests := []struct {
 		size int64
@@ -241,8 +323,9 @@ func TestFormatFileSize(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		if got := formatFileSize(test.size); got != test.want {
-			t.Errorf("formatFileSize(%d) = %q, want %q", test.size, got, test.want)
+		// PHP: FormatFileSize($size, 2) in the logger shutdown summary.
+		if got := httpx.FormatFileSize(test.size, 2); got != test.want {
+			t.Errorf("FormatFileSize(%d) = %q, want %q", test.size, got, test.want)
 		}
 	}
 }
