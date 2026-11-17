@@ -219,10 +219,9 @@ storage, JSON shapes) is implemented in-repo rather than delegated to a library 
 | Module | Replaces | Used by | Notes |
 | --- | --- | --- | --- |
 | `github.com/emersion/go-imap/v2` | `MailSo\Imap`, `MailSo\Net` | `imapclient`, `mail` | IMAP4rev1 client with SASL, IDLE, LIST-STATUS, MOVE, SORT/THREAD, ESEARCH/QRESYNC, METADATA. Check per-domain `disabled_capabilities` before use; fall back to client-side sorting when the server lacks SORT. |
-| `github.com/emersion/go-sasl` | `MailSo\Net\*Sasl*` | `imapclient`, `smtpclient` | PLAIN, LOGIN, CRAM-MD5, ANONYMOUS. SCRAM-SHA-1/256/512 comes from `github.com/xdg-go/scram`. |
+| `github.com/emersion/go-sasl` | `MailSo\Net\*Sasl*` | `imapclient`, `smtpclient`, `sieveclient` | PLAIN, LOGIN, CRAM-MD5, ANONYMOUS. SCRAM-SHA-1/256/512 comes from `github.com/xdg-go/scram`. |
 | `github.com/xdg-go/scram` | `SnappyMail\SASL\Scram*` | `imapclient`, `smtpclient` | Server list in domain config advertises SCRAM first. |
 | `github.com/emersion/go-smtp` | `MailSo\Smtp` | `smtpclient`, `mail` | STARTTLS/implicit TLS, AUTH, ENVID/DSN via extension helpers as needed. |
-| `github.com/emersion/go-managesieve` (or `go-sieve`) | `MailSo\Sieve` | `sieveclient`, `handler/filters.go` | ManageSieve RFC 5804: LISTSCRIPTS/GETSCRIPT/PUTSCRIPT/SETACTIVE/DELETESCRIPT. |
 | `github.com/emersion/go-message` | `MailSo\Mime\*Parser*` | `mime`, `mail` | Streaming MIME parser (header fold/unfold, charsets, multipart). Message *building* is in-repo so output matches PHP's byte layout. |
 | `modernc.org/sqlite` | PDO SQLite (`Providers\AddressBook\PdoAddressBook`) | `contacts` | Pure Go, no cgo. Must open the existing `AddressBook.sqlite` schema unchanged. |
 | `github.com/ProtonMail/go-crypto/openpgp` | `SnappyMail\PGP\OpenPGP` | `pgp` | Key parsing, sign/verify, encrypt/decrypt, armored output. |
@@ -245,6 +244,14 @@ Standard library only, deliberately: `net/http` (+ `http.ServeContent` for range
 
 Deliberately **not** ported as dependencies:
 
+* ManageSieve (RFC 5804) — there is no maintained Go ManageSieve client module (`go-managesieve` and `go-sieve`
+  are not real modules; emersion's mail stack has no ManageSieve client), and the
+  protocol is a small line-based text protocol with literals and quoted strings, so `internal/sieveclient`
+  hand-rolls the transport: `CAPABILITY` (incl. `SASL`/`IMPLEMENTATION`/`VERSION`/`SIEVE` decoding), optional
+  `STARTTLS`, SASL `PLAIN`/`LOGIN` via `github.com/emersion/go-sasl`, then
+  `LISTSCRIPTS`/`GETSCRIPT`/`PUTSCRIPT`/`SETACTIVE`/`DELETESCRIPT`/`RENAMESCRIPT`/`CHECKSCRIPT` with the same
+  literals/quoted-string rules `MailSo\Sieve` uses, plus the `NO`/`BYE` response mapping onto the client's error
+  classes.
 * `lessphp` — the shipped theme (`Gazellemail/styles.css`) and the only enabled plugin (`caldav/calendar.css`)
   are plain CSS. `themes` supports `.less` only by returning an error until a LESS compiler is actually
   needed (documented limitation; `@nextcloud`/`@custom` directory scanning stays).
@@ -533,8 +540,11 @@ Each step below lists: **goal**, **references to read**, **deliverables**, **act
 
 #### Step 23 — Filters (Sieve)
 * Read: `Actions/Filters.php`, `Providers/Filters/SieveStorage.php`, `MailSo/Sieve/*`,
-  `Capabilities` (Sieve requires `SieveSettings.enabled`).
-* Deliver: `internal/sieveclient` + `handler/filters.go` (`DoFilters`, `DoFiltersScriptSave`,
+  `Capabilities` (Sieve requires `SieveSettings.enabled`), RFC 5804 (ManageSieve protocol).
+* Note: no external ManageSieve module is used — see [External dependencies](#external-dependencies);
+  `sieveclient` implements the protocol itself and takes SASL `PLAIN`/`LOGIN` from `github.com/emersion/go-sasl`.
+* Deliver: `internal/sieveclient` (connection + TLS/STARTTLS, capability negotiation, literal/quoted-string
+  codec, SASL login, script CRUD) + `handler/filters.go` (`DoFilters`, `DoFiltersScriptSave`,
   `DoFiltersScriptActivate`, `DoFiltersScriptDelete`) and `Capa.Sieve` gating.
 * Done when: script list/save/activate/delete against the test Sieve server matches PHP, and Sieve is reported
   unavailable when disabled in the domain config.
