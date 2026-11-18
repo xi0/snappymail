@@ -36,6 +36,7 @@ import (
 	"time"
 
 	"github.com/xi0/snappymail/go-backend/internal/config"
+	"github.com/xi0/snappymail/go-backend/internal/cryptox"
 	"github.com/xi0/snappymail/go-backend/internal/httpx"
 	"github.com/xi0/snappymail/go-backend/internal/logx"
 	"github.com/xi0/snappymail/go-backend/internal/service"
@@ -408,6 +409,7 @@ func loadApplication(tree installTree, logger *logx.Logger) (*config.Application
 
 	application.Env = environment()
 	application.LoadAverage = config.SystemLoadAverage
+	application.CipherSupported = cryptox.CipherSupported
 	application.Logf = func(category, message string) {
 		logger.Warningf("%s: %s", category, message)
 	}
