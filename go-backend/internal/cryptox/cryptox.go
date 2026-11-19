@@ -410,9 +410,12 @@ func (c *Crypter) Decrypt(blob Blob, key string) (any, error) {
 }
 
 // JSON is Crypt::EncryptToJSON()'s body: a JSON array of base64 strings.
+//
+// PHP: json_encode(array_map('base64_encode', [method, nonce, payload])), so the
+// method name is base64 encoded as well.
 func (b Blob) JSON() string {
 	return phpJSONArray([]string{
-		b.Method,
+		base64.StdEncoding.EncodeToString([]byte(b.Method)),
 		base64.StdEncoding.EncodeToString(b.Nonce),
 		base64.StdEncoding.EncodeToString(b.Payload),
 	})
@@ -438,10 +441,21 @@ func (c *Crypter) EncryptToJSON(data any, key string) (string, error) {
 }
 
 // DecryptFromJSON is Crypt::DecryptFromJSON().
+//
+// PHP decodes the whole array (array_map('base64_decode', $data)), so the method
+// name is base64 encoded on the wire as well.
 func (c *Crypter) DecryptFromJSON(data, key string) (any, error) {
 	var parts []string
 	if err := json.Unmarshal([]byte(data), &parts); nil != err {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidBlob, err)
+	}
+
+	if 3 == len(parts) {
+		method, err := base64Decode(parts[0])
+		if nil != err {
+			return nil, fmt.Errorf("%w: %v", ErrInvalidBlob, err)
+		}
+		parts[0] = string(method)
 	}
 
 	blob, err := blobFromParts(parts)

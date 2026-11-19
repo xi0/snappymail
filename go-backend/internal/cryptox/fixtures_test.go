@@ -102,9 +102,10 @@ func TestPHPFixtureJSONShape(t *testing.T) {
 
 	for _, fixture := range phpCryptFixtures {
 		// PHP: json_encode(array_map('base64_encode', [method, nonce, payload]))
-		// escapes "/" as "\/", so a base64 payload containing "/" is written
-		// with the escape. DecryptFromJSON must read either form.
-		encoded := `["` + fixture.method + `","` +
+		// escapes "/" as "\/", and base64 encodes the method name as well, so a
+		// payload containing "/" is written with the escape. DecryptFromJSON must
+		// read it.
+		encoded := `["` + base64.StdEncoding.EncodeToString([]byte(fixture.method)) + `","` +
 			base64.StdEncoding.EncodeToString(fixture.nonce) + `","` +
 			strings.ReplaceAll(fixture.payload, "/", `\/`) + `"]`
 
@@ -115,6 +116,22 @@ func TestPHPFixtureJSONShape(t *testing.T) {
 		}
 		if !reflect.DeepEqual(got, map[string]any{"a": "b", "n": int64(1)}) {
 			t.Errorf("%s: DecryptFromJSON = %#v", fixture.method, got)
+		}
+
+		// The blob Go writes has the same layout, so PHP can read it.
+		payload, err := base64.StdEncoding.DecodeString(fixture.payload)
+		if nil != err {
+			t.Fatalf("%s: decode fixture: %v", fixture.method, err)
+		}
+		blob := Blob{Method: fixture.method, Nonce: fixture.nonce, Payload: payload}
+
+		roundTripped, err := crypter.DecryptFromJSON(blob.JSON(), testKey)
+		if nil != err {
+			t.Errorf("%s: DecryptFromJSON(Blob.JSON()) : %v", fixture.method, err)
+			continue
+		}
+		if !reflect.DeepEqual(roundTripped, map[string]any{"a": "b", "n": int64(1)}) {
+			t.Errorf("%s: DecryptFromJSON(Blob.JSON()) = %#v", fixture.method, roundTripped)
 		}
 	}
 }

@@ -286,14 +286,42 @@ func TestBlobJSONLayout(t *testing.T) {
 		Payload: []byte{0xff, 0xff, 0xff},
 	}
 
-	// base64("////") is escaped as "\/\/\/\/" by PHP's json_encode().
-	want := `["sodium","AAEC","\/\/\/\/"]`
+	// PHP: json_encode(array_map('base64_encode', Encrypt(...))): all three
+	// elements are base64 encoded, including the method name, and the "/" of the
+	// payload is escaped as "\/\/\/\/" by json_encode().
+	want := `["c29kaXVt","AAEC","\/\/\/\/"]`
 	if got := blob.JSON(); got != want {
 		t.Errorf("Blob.JSON() = %s, want %s", got, want)
 	}
 
 	if got := base64.StdEncoding.EncodeToString(blob.Payload); "////" != got {
 		t.Fatalf("test vector is wrong: %q", got)
+	}
+	if got := base64.StdEncoding.EncodeToString([]byte(blob.Method)); "c29kaXVt" != got {
+		t.Fatalf("the base64 of the method = %q", got)
+	}
+}
+
+func TestDecryptFromJSONNeedsABase64Method(t *testing.T) {
+	crypter := testCrypter()
+	nonce := bytes.Repeat([]byte{0x11}, sodiumNonceSize)
+
+	payload, err := crypter.SodiumEncrypt(`{"a":"b"}`, nonce, testKey)
+	if nil != err {
+		t.Fatalf("SodiumEncrypt: %v", err)
+	}
+
+	blob := Blob{Method: MethodSodium, Nonce: nonce, Payload: payload}
+
+	// A raw (not base64 encoded) method name is not a PHP blob.
+	raw := `["sodium","` + base64.StdEncoding.EncodeToString(nonce) + `","` +
+		base64.StdEncoding.EncodeToString(payload) + `"]`
+	if _, err := crypter.DecryptFromJSON(raw, testKey); nil == err {
+		t.Error("a blob with a raw method name must be rejected, like PHP does")
+	}
+
+	if _, err := crypter.DecryptFromJSON(blob.JSON(), testKey); nil != err {
+		t.Errorf("DecryptFromJSON(Blob.JSON()): %v", err)
 	}
 }
 

@@ -3,16 +3,10 @@
   "name": "SnappyMail",
   "build_project_tool": {
     "command": "node_modules/.bin/gulp \u0026\u0026 make -C go-backend",
-    "blocking_files": [
-      "/node_modules/.bin/gulp",
-      "/go-backend/Makefile"
-    ]
+    "blocking_files": []
   },
   "run_tests_tool": {
     "command": "make -C go-backend test",
-    "blocking_files": [
-      "/go-backend/Makefile",
-      "*_test.go"
-    ]
+    "blocking_files": []
   }
 }
