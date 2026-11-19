@@ -37,6 +37,7 @@ import (
 
 	"github.com/xi0/snappymail/go-backend/internal/config"
 	"github.com/xi0/snappymail/go-backend/internal/cryptox"
+	"github.com/xi0/snappymail/go-backend/internal/handler"
 	"github.com/xi0/snappymail/go-backend/internal/httpx"
 	"github.com/xi0/snappymail/go-backend/internal/logx"
 	"github.com/xi0/snappymail/go-backend/internal/service"
@@ -386,6 +387,18 @@ func newHandler(tree installTree, logger *logx.Logger, application *config.Appli
 	router := web.NewRouter(pipeline, logger, paths, nil)
 
 	service.Register(router)
+
+	// The ?/Json action dispatcher of step 9. The session, admin session and
+	// plugin manager are wired in steps 7–10, 27 and 28; until then the
+	// dispatcher serves the session-less actions (DoPing, DoVersion), rejects
+	// POSTs without a usable token and refuses admin-only actions.
+	options := handler.Options{Version: tree.version}
+	if nil != logger {
+		// A typed-nil *logx.Logger would be a non-nil handler.Logger interface
+		// and panic on the first log line, so it is only set when usable.
+		options.Logger = logger
+	}
+	router.Register("Json", handler.NewDispatcher(options).Serve)
 
 	return router
 }

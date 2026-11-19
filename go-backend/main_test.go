@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -263,6 +264,40 @@ func TestNewHandlerServesPingAndIndex(t *testing.T) {
 	}
 	if !strings.Contains(recorder.Body.String(), "SnappyMail") {
 		t.Errorf("index body = %q", recorder.Body.String())
+	}
+}
+
+func TestNewHandlerServesJSONDispatcher(t *testing.T) {
+	root := t.TempDir()
+
+	tree, err := resolveInstallTree(options{root: root, version: "0.0.0"})
+	if nil != err {
+		t.Fatalf("resolveInstallTree: %v", err)
+	}
+
+	handler := newHandler(tree, nil, nil)
+
+	// The ?/Json entry point of step 9 reaches the dispatcher and answers with
+	// the JSON envelope (Action + Result + epoch).
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/?/Json/0/Version/", nil))
+
+	if http.StatusOK != recorder.Code {
+		t.Fatalf("Json status = %d, want 200", recorder.Code)
+	}
+	if got := recorder.Header().Get("Content-Type"); "application/json; charset=utf-8" != got {
+		t.Errorf("Json Content-Type = %q", got)
+	}
+
+	var response map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); nil != err {
+		t.Fatalf("Json body is not JSON (%v): %s", err, recorder.Body.String())
+	}
+	if "Version" != response["Action"] {
+		t.Errorf("Action = %v, want Version", response["Action"])
+	}
+	if _, ok := response["epoch"]; !ok {
+		t.Error("the envelope must carry epoch")
 	}
 }
 

@@ -3,9 +3,10 @@
 // the client exception of \RainLoop\Exceptions\ClientException.
 //
 // Phase 1 step 7 only needs the error side of it (an account or session that
-// cannot be resolved is a notification code, not a plain error). Step 9 fills in
-// the rest of the package: the JSON response envelope, the Capa/Layout/SignMeType
-// constants and the plugin hook plumbing.
+// cannot be resolved is a notification code, not a plain error). The JSON
+// response envelope itself lives in internal/handler (step 9), next to the
+// dispatcher that builds it. The Capa/Layout/SignMeType constants and the plugin
+// hook plumbing arrive with the steps that consume them (10 and 28).
 //
 // The numbers below are a compatibility contract with the frontend: the
 // JavaScript client switches on them, so they must never be renumbered, and the
