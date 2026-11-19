@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/xi0/snappymail/go-backend/internal/account"
 	"github.com/xi0/snappymail/go-backend/internal/appctx"
@@ -28,29 +29,113 @@ const (
 )
 
 // testEnv is the per-installation state the requests share: the storage folder,
-// the crypt engine and the domain configs.
+// the crypt engine, the domain configs, application.ini and the settings.
 type testEnv struct {
-	t       *testing.T
-	storage *storage.Provider
-	crypt   *cryptox.Crypter
-	domains *fakeDomains
-	logger  *logRecorder
+	t        *testing.T
+	storage  *storage.Provider
+	crypt    *cryptox.Crypter
+	domains  *fakeDomains
+	logger   *logRecorder
+	config   *testConfig
+	settings *fakeSettings
+	hooks    *hookRecorder
+	// now is the fixed clock of the login flow (login.fault_delay, SSO).
+	now time.Time
+	// slept records the pauses of login.fault_delay.
+	slept []time.Duration
 }
 
 // fakeDomains is a DomainProvider without a domains/ folder.
+//
+// A wildcard config is returned for any name (or for wildName only), so the
+// "determine with wildcard" fallback of resolveLoginCredentials() can be
+// exercised without the domain provider's Load() options.
 type fakeDomains struct {
-	configs map[string]*domain.Domain
+	configs  map[string]*domain.Domain
+	wildcard *domain.Domain
+	wildName string
 }
 
-func (f *fakeDomains) Load(name string, _ ...domain.LoadOption) *domain.Domain {
-	return f.configs[name]
+func (f *fakeDomains) Load(name string, options ...domain.LoadOption) *domain.Domain {
+	if config, ok := f.configs[name]; ok {
+		return config
+	}
+	// A wildcard config is only used when the caller asks for it, like
+	// DefaultDomain::Load($name, $bFindWithWildCard).
+	if 0 < len(options) && nil != f.wildcard && ("" == f.wildName || f.wildName == name) {
+		return f.wildcard
+	}
+	return nil
 }
 
 func (f *fakeDomains) GetByEmailAddress(email string) (*domain.Domain, error) {
-	if config, ok := f.configs[account.EmailDomain(email)]; ok {
+	if config := f.Load(account.EmailDomain(email), domain.WithWildcard()); nil != config {
 		return config, nil
 	}
 	return nil, appctx.NewClientError(appctx.DomainNotAllowed, nil, email)
+}
+
+// testConfig is a minimal application.ini for the login tests: the values are
+// keyed by "section.key" and a missing entry yields the PHP default.
+type testConfig struct {
+	strings map[string]string
+	bools   map[string]bool
+	ints    map[string]int
+}
+
+func newTestConfig() *testConfig {
+	return &testConfig{
+		strings: map[string]string{},
+		bools:   map[string]bool{},
+		ints:    map[string]int{},
+	}
+}
+
+func (c *testConfig) GetString(sectionName, key, defaultValue string) string {
+	if value, ok := c.strings[sectionName+"."+key]; ok {
+		return value
+	}
+	return defaultValue
+}
+
+func (c *testConfig) GetBool(sectionName, key string, defaultValue bool) bool {
+	if value, ok := c.bools[sectionName+"."+key]; ok {
+		return value
+	}
+	return defaultValue
+}
+
+func (c *testConfig) GetInt(sectionName, key string, defaultValue int) int {
+	if value, ok := c.ints[sectionName+"."+key]; ok {
+		return value
+	}
+	return defaultValue
+}
+
+// fakeSettings is Actions::SettingsProvider(): the settings document per
+// account, kept in memory.
+type fakeSettings struct {
+	documents map[string]*storage.Settings
+	saves     int
+}
+
+func newFakeSettings() *fakeSettings {
+	return &fakeSettings{documents: map[string]*storage.Settings{}}
+}
+
+func (s *fakeSettings) Load(account storage.Account) *storage.Settings {
+	if document, ok := s.documents[account.Email()]; ok {
+		return document
+	}
+	document := storage.NewSettings()
+	s.documents[account.Email()] = document
+	return document
+}
+
+func (s *fakeSettings) Save(account storage.Account, settings *storage.Settings) error {
+	s.documents[account.Email()] = settings
+	s.saves++
+	return nil
 }
 
 // logRecorder captures the SnappyMail\Log lines of the authenticator.
@@ -84,10 +169,13 @@ func newTestEnv(t *testing.T) *testEnv {
 		storage: storage.NewProvider(storage.NewFileStorage(t.TempDir(), false)),
 		crypt:   crypter,
 		domains: &fakeDomains{configs: map[string]*domain.Domain{
-			"example.com":  testDomain("example.com"),
+			"example.com":    testDomain("example.com"),
 			"second.example": testDomain("second.example"),
 		}},
-		logger: &logRecorder{},
+		logger:   &logRecorder{},
+		config:   newTestConfig(),
+		settings: newFakeSettings(),
+		now:      time.Unix(1700000000, 0),
 	}
 }
 
@@ -98,6 +186,61 @@ func (e *testEnv) context() *account.Context {
 		Storage: e.storage,
 		Domains: e.domains,
 		Crypt:   e.crypt,
+		Plugins: e.plugins(),
+	}
+}
+
+// plugins is the hook recorder every request shares.
+func (e *testEnv) plugins() *hookRecorder {
+	if nil == e.hooks {
+		e.hooks = &hookRecorder{}
+	}
+	return e.hooks
+}
+
+// hookRecorder records the plugin hooks the login flow runs and lets a test
+// rewrite hook arguments like a real plugin does.
+type hookRecorder struct {
+	runs     []string
+	rewriter func(name string, args ...any)
+}
+
+func (h *hookRecorder) RunHook(name string, args ...any) {
+	h.runs = append(h.runs, name)
+	if nil != h.rewriter {
+		h.rewriter(name, args...)
+	}
+}
+
+// has reports whether a hook ran at least once.
+func (h *hookRecorder) has(name string) bool {
+	for _, run := range h.runs {
+		if run == name {
+			return true
+		}
+	}
+	return false
+}
+
+// loginFor builds the login flow of one request.
+func (e *testEnv) loginFor(request *http.Request) (*Login, *httptest.ResponseRecorder) {
+	authenticator, recorder := e.authenticator(request)
+	return e.loginWith(authenticator), recorder
+}
+
+// loginWith builds the login flow on top of an existing authenticator.
+func (e *testEnv) loginWith(authenticator *Authenticator) *Login {
+	return &Login{
+		Context:  authenticator.Context,
+		Session:  authenticator,
+		Config:   e.config,
+		Logger:   e.logger,
+		Host:     "webmail.example.com",
+		HTTPHost: "webmail.example.com:1443",
+		Settings: e.settings,
+		Start:    e.now,
+		Now:      func() time.Time { return e.now },
+		Sleep:    func(d time.Duration) { e.slept = append(e.slept, d) },
 	}
 }
 

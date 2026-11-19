@@ -306,7 +306,7 @@ func mustCryptKey(t *testing.T, main *MainAccount, context *Context) string {
 type emptyDomains struct{}
 
 func (emptyDomains) Load(string, ...domain.LoadOption) *domain.Domain { return nil }
-func (emptyDomains) GetByEmailAddress(string) (*domain.Domain, error)  { return nil, nil }
+func (emptyDomains) GetByEmailAddress(string) (*domain.Domain, error) { return nil, nil }
 
 // clientCode returns the notification code of a client error.
 func clientCode(t *testing.T, err error) int {

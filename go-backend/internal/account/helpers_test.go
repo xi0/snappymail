@@ -133,12 +133,12 @@ func newTestContext(t *testing.T, configs ...*domain.Domain) (*Context, *hookRec
 	logs := &logRecorder{}
 
 	context := &Context{
-		Salt:     testSalt,
-		Storage:  testStorage(t),
-		Domains:  newFakeDomains(configs...),
-		Crypt:    testCrypter(),
-		Plugins:  hooks,
-		Log:      logs.logf,
+		Salt:    testSalt,
+		Storage: testStorage(t),
+		Domains: newFakeDomains(configs...),
+		Crypt:   testCrypter(),
+		Plugins: hooks,
+		Log:     logs.logf,
 	}
 
 	return context, hooks, logs
