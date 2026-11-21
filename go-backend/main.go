@@ -8,8 +8,9 @@
 // configs/application.ini (internal/config) and maps it onto that pipeline.
 // Step 10 wires the ?/AppData and ?/AdminAppData endpoints (internal/service)
 // with the salt, the storage/settings/domain providers and the per-request
-// session. Routing to the remaining Service* endpoints and the JSON actions is
-// filled in by steps 11–13.
+// session. Step 11 renders the application shell through internal/pages and
+// serves ?/Lang, ?/Css and ?/Plugins. The upload, raw and misc endpoints are
+// filled in by steps 12–13.
 //
 // The pieces below are the ones the later steps need to stay compatible with:
 //
@@ -49,7 +50,9 @@ import (
 	"github.com/xi0/snappymail/go-backend/internal/domain"
 	"github.com/xi0/snappymail/go-backend/internal/handler"
 	"github.com/xi0/snappymail/go-backend/internal/httpx"
+	"github.com/xi0/snappymail/go-backend/internal/l10n"
 	"github.com/xi0/snappymail/go-backend/internal/logx"
+	"github.com/xi0/snappymail/go-backend/internal/pages"
 	"github.com/xi0/snappymail/go-backend/internal/service"
 	"github.com/xi0/snappymail/go-backend/internal/storage"
 	"github.com/xi0/snappymail/go-backend/internal/web"
@@ -377,9 +380,9 @@ func logShutdownLine(logger *logx.Logger, started time.Time) {
 // newHandler builds the request pipeline of step 2.
 //
 // Step 3 maps configs/application.ini onto web.Config, step 10 adds the
-// AppData endpoints, step 11 replaces web.DefaultIndex with the pages package
-// and steps 11–13 register the remaining service endpoints next to the Ping
-// stub. A nil application falls back to the pipeline defaults.
+// AppData endpoints and step 11 renders the app shell (internal/pages) and the
+// Lang/Css/Plugins endpoints. Steps 12–13 register the remaining service
+// endpoints. A nil application falls back to the pipeline defaults.
 func newHandler(tree installTree, logger *logx.Logger, application *config.Application) http.Handler {
 	pipeline := web.DefaultConfig()
 	appPath := ""
@@ -395,9 +398,35 @@ func newHandler(tree installTree, logger *logx.Logger, application *config.Appli
 		VersionRoot: tree.versionRoot,
 	}
 
-	router := web.NewRouter(pipeline, logger, paths, nil)
-
+	// The AppData/AdminAppData plus Lang/Css/Plugins endpoints and the index
+	// page share one cookie/account/cache stack.
 	appData := newAppData(tree, logger, application, paths)
+
+	// The index page (internal/pages): the renderer reads the webmail state
+	// through AppData.IndexActions and re-emits the CSP with the script nonce.
+	var pageCache pages.Cache
+	if cache := appData.Cacher(); nil != cache {
+		pageCache = cache
+	}
+	var pagePlugins pages.Plugins
+	if manager := appData.PluginsManager(); nil != manager {
+		pagePlugins = manager
+	}
+
+	index := pages.New(pages.Options{
+		Config:     appData.Config(),
+		Version:    tree.version,
+		Paths:      paths,
+		DataFolder: tree.dataFolder,
+		Cache:      pageCache,
+		Plugins:    pagePlugins,
+		Actions:    appData.IndexActions,
+		SetCSP: func(w http.ResponseWriter, nonce string) {
+			web.RequestCSP(pipeline, paths.Path(), nonce).SetHeaders(w)
+		},
+	})
+
+	router := web.NewRouter(pipeline, logger, paths, index.Index)
 	service.Register(router, appData)
 
 	// The ?/Json action dispatcher of step 9, on the same session stack as the
@@ -445,6 +474,16 @@ func newAppData(
 
 	salt := loadSalt(tree, logger)
 	crypter := cryptox.New(salt, tree.version, cfg.GetString("security", "encrypt_cipher", config.DefaultCipher))
+
+	// Actions::Cacher(): the file cache of the system data (Lang/Css/Plugins)
+	// and the index page. A missing cache folder only disables caching.
+	var cache *storage.Cache
+	if driver, err := storage.NewCacheFileDriver(filepath.Join(tree.privateData, "cache")); nil == err {
+		cache = storage.NewCache(driver)
+		cache.SetCacheIndex(cfg.GetString("cache", "fast_cache_index", ""))
+	} else if nil != logger {
+		logger.Warningf("cache folder unavailable, system data is not cached: %v", err)
+	}
 
 	// Providers\Storage and Providers\Settings: the main folder and the
 	// "storage-local" variant that keeps additional accounts in a subfolder.
@@ -501,6 +540,7 @@ func newAppData(
 		Dev:           isDevVersion(tree.version),
 		Settings:      storage.NewSettingsStorage(storageProvider),
 		LocalSettings: storage.NewSettingsStorage(localStorageProvider),
+		Cache:         cache,
 		Domains:       domains,
 		// Go resizes thumbnails itself (golang.org/x/image), so the equivalent
 		// of PHP's gd/imagick check is always true.
@@ -573,6 +613,9 @@ func loadApplication(tree installTree, logger *logx.Logger) (*config.Application
 	application.Env = environment()
 	application.LoadAverage = config.SystemLoadAverage
 	application.CipherSupported = cryptox.CipherSupported
+	// SnappyMail\L10n::validLanguage(): the on-disk language list decides which
+	// codes are accepted (config Set() normalises every "language" key).
+	application.ValidateLanguage = l10n.NewCatalog(tree.versionRoot).ValidLanguage
 	application.Logf = func(category, message string) {
 		logger.Warningf("%s: %s", category, message)
 	}

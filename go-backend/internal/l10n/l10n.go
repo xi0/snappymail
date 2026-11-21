@@ -11,8 +11,8 @@
 //	<b>app/localization/*</b> dirs holding <b>admin.json</b> -> admin panel languages
 //
 // Step 10 (internal/service, AppData) only needs the list and the validation;
-// step 11 adds the en -> base -> exact merge of L10n::load() and the
-// compileLanguage() JavaScript on top of this package.
+// Catalog.Load and Catalog.CompileLanguage add the en -> base -> exact merge of
+// L10n::load() and the compileLanguage() JavaScript on top of this package.
 package l10n
 
 import (
@@ -42,6 +42,9 @@ var acceptLanguagePattern = regexp.MustCompile(`([a-z]{1,8}(?:-[a-z]{1,8})?)(?:;
 // The directory scan mirrors the static $aCache of L10n::getLanguages(): the
 // list is computed once per area and shared by every request.
 type Catalog struct {
+	// versionRoot is APP_VERSION_ROOT_PATH (with or without a trailing
+	// separator), used to locate the relativetimeformat.js files.
+	versionRoot string
 	// localizationDir is APP_VERSION_ROOT_PATH . 'app/localization'.
 	localizationDir string
 
@@ -53,8 +56,11 @@ type Catalog struct {
 // NewCatalog builds the catalog for a version root (APP_VERSION_ROOT_PATH,
 // with or without a trailing separator).
 func NewCatalog(versionRoot string) *Catalog {
+	root := strings.TrimRight(versionRoot, `/\`)
+
 	return &Catalog{
-		localizationDir: filepath.Join(strings.TrimRight(versionRoot, `/\`), "app", "localization"),
+		versionRoot:     root,
+		localizationDir: filepath.Join(root, "app", "localization"),
 		lists:           map[bool][]string{},
 		loaded:          map[bool]bool{},
 	}

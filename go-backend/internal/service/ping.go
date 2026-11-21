@@ -2,8 +2,8 @@
 // (?/Ping, ?/AppData, ?/Lang, ?/Css, ?/Raw, ?/Upload, …).
 //
 // Step 2 needs the Ping endpoint so the router can be verified end to end,
-// step 10 adds AppData/AdminAppData and the remaining services are added by
-// steps 11–13.
+// step 10 adds AppData/AdminAppData, step 11 adds Lang/Css/Plugins and the
+// remaining services are added by steps 12–13.
 package service
 
 import (
@@ -36,5 +36,8 @@ func Register(router *web.Router, appData *AppData) {
 	if nil != appData {
 		router.Register("AppData", appData.Serve)
 		router.Register("AdminAppData", appData.ServeAdmin)
+		router.Register("Lang", appData.Lang)
+		router.Register("Css", appData.Css)
+		router.Register("Plugins", appData.Plugins)
 	}
 }

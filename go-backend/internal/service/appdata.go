@@ -139,6 +139,9 @@ type Options struct {
 	Settings SettingsProvider
 	// LocalSettings is SettingsProvider(true) (the "settings_local" file).
 	LocalSettings SettingsProvider
+	// Cache is Actions::Cacher() (the file cache of system data and the index
+	// page). A nil cache disables caching.
+	Cache *storage.Cache
 	// Domains is DomainProvider().
 	Domains DomainLister
 	// AddressBook is AddressBookProvider() (step 22).
@@ -208,6 +211,7 @@ func NewAppData(options Options) *AppData {
 		themes: themes.Set{
 			VersionRoot: versionRoot,
 			IndexRoot:   options.IndexRoot,
+			Paths:       options.Paths,
 		},
 		languages: l10n.NewCatalog(versionRoot),
 	}

@@ -220,9 +220,8 @@ func (rt *Router) logRequest(r *http.Request) {
 	)
 }
 
-// DefaultIndex is the step-2 placeholder for the application shell. Step 11
-// renders app/templates/Index.html (boot CSS/JS, language, theme, CSP nonce)
-// through the pages package.
+// DefaultIndex is the placeholder index page for routers built without the
+// pages renderer (the router tests). main wires pages.Renderer.Index instead.
 func DefaultIndex(w http.ResponseWriter, r *http.Request, route *Route) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)

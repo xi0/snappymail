@@ -168,6 +168,20 @@ func cspFor(config Config, webPath string) *CSP {
 	return csp
 }
 
+// RequestCSP is Api::getCSP($nonce): the CSP of a request, with the script
+// nonce added to script-src when nonce is not empty.
+//
+// The index page uses it to re-emit the header once the nonce is known (see
+// internal/pages). The plugin hook main.content-security-policy is wired in
+// step 33.
+func RequestCSP(config Config, webPath, nonce string) *CSP {
+	csp := cspFor(config, webPath)
+	if "" != nonce {
+		csp.Add("script-src", "'nonce-"+nonce+"'")
+	}
+	return csp
+}
+
 // uniqueStrings drops duplicates while keeping the first occurrence order
 // (PHP: array_unique()).
 func uniqueStrings(values []string) []string {

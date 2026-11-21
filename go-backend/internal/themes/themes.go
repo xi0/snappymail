@@ -16,6 +16,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+
+	"github.com/xi0/snappymail/go-backend/internal/httpx"
 )
 
 // The stylesheet names that make a directory a theme (styles.css wins over
@@ -40,6 +42,10 @@ type Set struct {
 	// NextcloudRoot is OC::$SERVERROOT; empty disables the Nextcloud themes,
 	// exactly like the `class_exists('OC', false)` check of GetThemes().
 	NextcloudRoot string
+	// NextcloudWebRoot is OC::$WEBROOT, the URL base of the Nextcloud themes.
+	NextcloudWebRoot string
+	// Paths is the install tree URL helpers (WebPath()/WebVersionPath()).
+	Paths httpx.WebPaths
 }
 
 // List is GetThemes(): the theme names of the install tree, sorted ascending
