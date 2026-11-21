@@ -301,6 +301,105 @@ func TestNewHandlerServesJSONDispatcher(t *testing.T) {
 	}
 }
 
+func TestNewHandlerServesAppData(t *testing.T) {
+	root := t.TempDir()
+
+	tree, err := resolveInstallTree(options{root: root, version: "0.0.0"})
+	if nil != err {
+		t.Fatalf("resolveInstallTree: %v", err)
+	}
+
+	handler := newHandler(tree, nil, nil)
+
+	// ?/AppData/0/<rand>/ is the document the frontend boots with (step 10).
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/?/AppData/0/123456/", nil))
+
+	if http.StatusOK != recorder.Code {
+		t.Fatalf("AppData status = %d, want 200", recorder.Code)
+	}
+	if got := recorder.Header().Get("Content-Type"); "application/json; charset=utf-8" != got {
+		t.Errorf("AppData Content-Type = %q", got)
+	}
+	if got := recorder.Header().Get("Cache-Control"); "no-store" != got {
+		t.Errorf("AppData Cache-Control = %q, want no-store", got)
+	}
+
+	var document map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &document); nil != err {
+		t.Fatalf("AppData body is not JSON (%v): %s", err, recorder.Body.String())
+	}
+	if false != document["Auth"] {
+		t.Errorf("Auth = %v, want false for a request without cookies", document["Auth"])
+	}
+	if "SnappyMail Webmail" != document["title"] {
+		t.Errorf("title = %v", document["title"])
+	}
+	system, ok := document["System"].(map[string]any)
+	if !ok {
+		t.Fatalf("System = %#v", document["System"])
+	}
+	if "0.0.0" != system["version"] {
+		t.Errorf("System.version = %v", system["version"])
+	}
+
+	// The admin area has its own document.
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/?/AdminAppData/0/123456/", nil))
+	if http.StatusOK != recorder.Code {
+		t.Fatalf("AdminAppData status = %d, want 200", recorder.Code)
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &document); nil != err {
+		t.Fatalf("AdminAppData body is not JSON (%v): %s", err, recorder.Body.String())
+	}
+	if _, ok := document["Admin"]; !ok {
+		t.Error("AdminAppData must carry the Admin block")
+	}
+
+	// The salt is not created in someone else's install tree.
+	if _, err := os.Stat(filepath.Join(tree.dataFolder, "SALT.php")); nil == err {
+		t.Error("AppData must not create data/SALT.php")
+	}
+}
+
+func TestLoadSalt(t *testing.T) {
+	root := t.TempDir()
+	tree, err := resolveInstallTree(options{root: root, version: "0.0.0"})
+	if nil != err {
+		t.Fatalf("resolveInstallTree: %v", err)
+	}
+
+	// Without SALT.php the fallback is a per-process salt, md5(salt + name + salt)
+	// can still be computed and is stable for the same content.
+	if got := loadSalt(tree, nil); "" == got || 32 != len(got) {
+		t.Fatalf("loadSalt() = %q, want an md5 hash", got)
+	}
+
+	// With SALT.php the value is md5(salt + APP_PRIVATE_DATA_NAME + salt).
+	saltFile := filepath.Join(tree.dataFolder, "SALT.php")
+	if err := os.MkdirAll(tree.dataFolder, 0o700); nil != err {
+		t.Fatalf("mkdir data folder: %v", err)
+	}
+	content := "<?php //deadbeef\n"
+	if err := os.WriteFile(saltFile, []byte(content), 0o600); nil != err {
+		t.Fatalf("write SALT.php: %v", err)
+	}
+
+	want := md5Hex("<?php //deadbeef" + "_default_" + "<?php //deadbeef")
+	if got := loadSalt(tree, nil); want != got {
+		t.Errorf("loadSalt() = %q, want %q", got, want)
+	}
+}
+
+func TestIsDevVersion(t *testing.T) {
+	if !isDevVersion("0.0.0") {
+		t.Error("0.0.0 is the development version (SNAPPYMAIL_DEV)")
+	}
+	if isDevVersion("2.8.2") {
+		t.Error("a release version is not the development version")
+	}
+}
+
 func TestNewHandlerServesRepoStaticAssets(t *testing.T) {
 	// The step-2 acceptance check runs against the real install tree: the
 	// minified bundle is served, the sources and private data are not.

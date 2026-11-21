@@ -457,6 +457,26 @@ func TestEmailToASCII(t *testing.T) {
 	}
 }
 
+func TestEmailToUTF8(t *testing.T) {
+	tests := []struct {
+		address string
+		want    string
+	}{
+		{"user@xn--bcher-kva.example", "user@bücher.example"},
+		{"User@XN--BCHER-KVA.example", "User@bücher.example"},
+		{"user@xn--du8h.snappymail.eu", "user@📧.snappymail.eu"},
+		{"user@example.com", "user@example.com"},
+		// Without "@" the value is untouched (SnappyMail\IDN::emailToUtf8()).
+		{"xn--bcher-kva.example", "xn--bcher-kva.example"},
+	}
+
+	for _, test := range tests {
+		if got := EmailToUTF8(test.address); got != test.want {
+			t.Errorf("EmailToUTF8(%q) = %q, want %q", test.address, got, test.want)
+		}
+	}
+}
+
 func TestLocalPart(t *testing.T) {
 	tests := map[string]string{
 		"user@example.com": "user",

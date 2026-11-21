@@ -42,7 +42,7 @@ func ConvertArray(value any) map[string]any {
 	}
 }
 
-// nonEmptyString is PHP's "$value ?: ''" for the elements of a token array.
+// nonEmptyString is PHP's "$value ?: ”" for the elements of a token array.
 func nonEmptyString(value any) string {
 	if phpEmpty(value) {
 		return ""

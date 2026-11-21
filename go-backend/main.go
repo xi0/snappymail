@@ -6,13 +6,17 @@
 // force_https redirect, output compression, the admin panel and Sec-Fetch gates
 // and the static asset whitelist (internal/web). Step 3 loads
 // configs/application.ini (internal/config) and maps it onto that pipeline.
-// Routing to the real Service* endpoints and the JSON actions is filled in by
-// steps 9–13.
+// Step 10 wires the ?/AppData and ?/AdminAppData endpoints (internal/service)
+// with the salt, the storage/settings/domain providers and the per-request
+// session. Routing to the remaining Service* endpoints and the JSON actions is
+// filled in by steps 11–13.
 //
 // The pieces below are the ones the later steps need to stay compatible with:
 //
 //   - the install tree layout (APP_INDEX_ROOT_PATH, APP_VERSION_ROOT_PATH,
 //     APP_DATA_FOLDER_PATH, APP_PRIVATE_DATA), see include.php;
+//   - APP_SALT = md5(salt . privateDataName . salt) with the salt from
+//     data/SALT.php;
 //   - the log line format and the log filename patterns of
 //     RainLoop\Actions::compileLogParams()/compileLogFileName() and
 //     \MailSo\Log\Driver;
@@ -21,6 +25,9 @@ package main
 
 import (
 	"context"
+	"crypto/md5"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -35,12 +42,16 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/xi0/snappymail/go-backend/internal/account"
+	"github.com/xi0/snappymail/go-backend/internal/auth"
 	"github.com/xi0/snappymail/go-backend/internal/config"
 	"github.com/xi0/snappymail/go-backend/internal/cryptox"
+	"github.com/xi0/snappymail/go-backend/internal/domain"
 	"github.com/xi0/snappymail/go-backend/internal/handler"
 	"github.com/xi0/snappymail/go-backend/internal/httpx"
 	"github.com/xi0/snappymail/go-backend/internal/logx"
 	"github.com/xi0/snappymail/go-backend/internal/service"
+	"github.com/xi0/snappymail/go-backend/internal/storage"
 	"github.com/xi0/snappymail/go-backend/internal/web"
 )
 
@@ -365,10 +376,10 @@ func logShutdownLine(logger *logx.Logger, started time.Time) {
 
 // newHandler builds the request pipeline of step 2.
 //
-// Step 3 maps configs/application.ini onto web.Config, step 11 replaces
-// web.DefaultIndex with the pages package and steps 9–13 register the real
-// service endpoints next to the Ping stub. A nil application falls back to the
-// pipeline defaults.
+// Step 3 maps configs/application.ini onto web.Config, step 10 adds the
+// AppData endpoints, step 11 replaces web.DefaultIndex with the pages package
+// and steps 11–13 register the remaining service endpoints next to the Ping
+// stub. A nil application falls back to the pipeline defaults.
 func newHandler(tree installTree, logger *logx.Logger, application *config.Application) http.Handler {
 	pipeline := web.DefaultConfig()
 	appPath := ""
@@ -386,21 +397,160 @@ func newHandler(tree installTree, logger *logx.Logger, application *config.Appli
 
 	router := web.NewRouter(pipeline, logger, paths, nil)
 
-	service.Register(router)
+	appData := newAppData(tree, logger, application, paths)
+	service.Register(router, appData)
 
-	// The ?/Json action dispatcher of step 9. The session, admin session and
-	// plugin manager are wired in steps 7–10, 27 and 28; until then the
-	// dispatcher serves the session-less actions (DoPing, DoVersion), rejects
-	// POSTs without a usable token and refuses admin-only actions.
+	// The ?/Json action dispatcher of step 9, on the same session stack as the
+	// AppData endpoints, so the connection/CSRF token checks and the account
+	// resolution behave like PHP. The admin session (step 27) and the plugin
+	// manager (step 28) are still unwired.
 	options := handler.Options{Version: tree.version}
 	if nil != logger {
 		// A typed-nil *logx.Logger would be a non-nil handler.Logger interface
 		// and panic on the first log line, so it is only set when usable.
 		options.Logger = logger
 	}
+	options.Session = func(w http.ResponseWriter, r *http.Request) handler.Session {
+		session := appData.NewSession(w, r)
+		if nil == session || nil == session.Authenticator {
+			return nil
+		}
+		return session.Authenticator
+	}
 	router.Register("Json", handler.NewDispatcher(options).Serve)
 
 	return router
+}
+
+// newAppData builds the AppData/AdminAppData endpoints (step 10) on top of the
+// on-disk state of the install tree: the salt, the storage/settings/domain
+// providers and the per-request session (cookies + account).
+//
+// A nil application uses the application.ini defaults, so the pipeline (and its
+// tests) also work before the configuration file exists.
+func newAppData(
+	tree installTree,
+	logger *logx.Logger,
+	application *config.Application,
+	paths httpx.WebPaths,
+) *service.AppData {
+	cfg := application
+	if nil == cfg {
+		cfg = config.NewApplication(
+			filepath.Join(tree.privateData, "configs", "application.ini"),
+			tree.version,
+			config.Defaults{},
+		)
+	}
+
+	salt := loadSalt(tree, logger)
+	crypter := cryptox.New(salt, tree.version, cfg.GetString("security", "encrypt_cipher", config.DefaultCipher))
+
+	// Providers\Storage and Providers\Settings: the main folder and the
+	// "storage-local" variant that keeps additional accounts in a subfolder.
+	storageDir := filepath.Join(tree.privateData, "storage")
+	storageProvider := storage.NewProvider(storage.NewFileStorage(storageDir, false))
+	localStorageProvider := storage.NewProvider(storage.NewFileStorage(storageDir, true))
+
+	domains := domain.NewProvider(filepath.Join(tree.privateData, "domains"), nil, domain.Defaults{})
+	// Providers\Domain adds the filter.domain hook and the account checks the
+	// account models rely on; the plain provider is the GetList() source.
+	domainProvider := account.NewDomains(domains)
+
+	cookies := cryptox.CookieOptions{
+		Path:     cfg.GetString("labs", "cookie_default_path", ""),
+		SameSite: cfg.GetString("security", "cookie_samesite", "Strict"),
+		Secure:   cfg.GetBool("labs", "cookie_default_secure", false),
+	}
+
+	// A typed-nil *logx.Logger would be a non-nil auth.Logger and panic on the
+	// first log line, so it is only passed when usable.
+	var authLogger auth.Logger
+	if nil != logger {
+		authLogger = logger
+	}
+
+	newSession := func(w http.ResponseWriter, r *http.Request) *service.Session {
+		options := cookies
+		options.RequestIsSecure = httpx.IsSecure(r)
+
+		jar := cryptox.NewJar(r, options)
+		context := &account.Context{
+			Salt:             salt,
+			Storage:          storageProvider,
+			Domains:          domainProvider,
+			Crypt:            crypter,
+			InsecureCryptKey: cfg.GetBool("security", "insecure_cryptkey", false),
+		}
+
+		return &service.Session{
+			Request:       r,
+			Response:      w,
+			Authenticator: auth.New(context, jar, w, authLogger),
+			Jar:           jar,
+		}
+	}
+
+	return service.NewAppData(service.Options{
+		Config:        cfg,
+		Version:       tree.version,
+		Salt:          salt,
+		Paths:         paths,
+		IndexRoot:     tree.indexRoot,
+		PrivateData:   tree.privateData,
+		Dev:           isDevVersion(tree.version),
+		Settings:      storage.NewSettingsStorage(storageProvider),
+		LocalSettings: storage.NewSettingsStorage(localStorageProvider),
+		Domains:       domains,
+		// Go resizes thumbnails itself (golang.org/x/image), so the equivalent
+		// of PHP's gd/imagick check is always true.
+		AttachmentThumbnails: true,
+		NewSession:           newSession,
+	})
+}
+
+// isDevVersion is SNAPPYMAIL_DEV: '0.0.0' === APP_VERSION.
+func isDevVersion(version string) bool { return "0.0.0" == version }
+
+// loadSalt is APP_SALT of include.php: md5(salt . APP_PRIVATE_DATA_NAME . salt),
+// where the salt is the content of data/SALT.php.
+//
+// The first run of include.php/setup.php writes that file; the Go backend runs
+// against an existing installation tree (see the drop-in mode of SPEC.md), so a
+// missing file only warns and falls back to a per-process salt instead of
+// modifying the tree.
+func loadSalt(tree installTree, logger *logx.Logger) string {
+	salt := ""
+
+	if content, err := os.ReadFile(filepath.Join(tree.dataFolder, "SALT.php")); nil == err {
+		salt = strings.TrimSpace(string(content))
+	}
+
+	if "" == salt {
+		salt = "<?php //" + randomHex(48)
+		if nil != logger {
+			logger.Warningf("data/SALT.php is missing, using a per-process salt: " +
+				"sessions and encrypted cookies will not survive a restart")
+		}
+	}
+
+	return md5Hex(salt + tree.privateName + salt)
+}
+
+// randomHex is bin2hex(random_bytes(size)).
+func randomHex(size int) string {
+	buffer := make([]byte, size)
+	if _, err := rand.Read(buffer); nil != err {
+		// crypto/rand does not fail in practice; an empty salt would be worse.
+		return ""
+	}
+	return hex.EncodeToString(buffer)
+}
+
+// md5Hex is PHP's md5().
+func md5Hex(value string) string {
+	sum := md5.Sum([]byte(value))
+	return hex.EncodeToString(sum[:])
 }
 
 // loadApplication reads configs/application.ini like

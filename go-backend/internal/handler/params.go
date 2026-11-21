@@ -162,7 +162,7 @@ func phpString(value any) string {
 	return ""
 }
 
-// scalarString is PHP's "(is_scalar($v) ? (string) $v : '')" used when logging a
+// scalarString is PHP's "(is_scalar($v) ? (string) $v : ”)" used when logging a
 // client controlled value.
 func scalarString(value any) string {
 	switch value.(type) {

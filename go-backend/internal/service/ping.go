@@ -1,12 +1,12 @@
-// Package service implements the non-JSON endpoints of
-// RainLoop\ServiceActions (?/Ping, ?/Lang, ?/Css, ?/Raw, ?/Upload, …).
+// Package service implements the non-JSON endpoints of RainLoop\ServiceActions
+// (?/Ping, ?/AppData, ?/Lang, ?/Css, ?/Raw, ?/Upload, …).
 //
-// Step 2 only needs the Ping endpoint so the router can be verified end to
-// end; the remaining services are added by steps 10–13.
+// Step 2 needs the Ping endpoint so the router can be verified end to end,
+// step 10 adds AppData/AdminAppData and the remaining services are added by
+// steps 11–13.
 package service
 
 import (
-	"io"
 	"net/http"
 
 	"github.com/xi0/snappymail/go-backend/internal/httpx"
@@ -20,13 +20,21 @@ func Ping(w http.ResponseWriter, r *http.Request, route *web.Route) bool {
 	w.WriteHeader(http.StatusOK)
 
 	if http.MethodHead != r.Method {
-		_, _ = io.WriteString(w, "Pong")
+		_, _ = w.Write([]byte("Pong"))
 	}
 
 	return true
 }
 
-// Register adds the step-2 endpoint stubs to the router.
-func Register(router *web.Router) {
+// Register adds the implemented service endpoints to the router.
+//
+// appData may be nil (a router without the AppData endpoints, which the tests
+// of the pipeline use); the later steps pass their own services the same way.
+func Register(router *web.Router, appData *AppData) {
 	router.Register("Ping", Ping)
+
+	if nil != appData {
+		router.Register("AppData", appData.Serve)
+		router.Register("AdminAppData", appData.ServeAdmin)
+	}
 }

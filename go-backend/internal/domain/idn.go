@@ -109,3 +109,39 @@ func EmailToASCII(address string) string {
 	}
 	return address[:index+1] + toASCII(address[index+1:])
 }
+
+// unicodeProfile is the UTS #46 ToUnicode counterpart of nameProfile: the same
+// mapping and length rules, but decoding "xn--" labels instead of encoding
+// them. PHP calls idn_to_utf8() with default flags.
+var unicodeProfile = idna.New(
+	idna.MapForLookup(),
+	idna.Transitional(true),
+	idna.StrictDomainName(false),
+	idna.VerifyDNSLength(false),
+)
+
+// toUnicode ports \idn_to_utf8() the way SnappyMail calls it and returns the
+// Unicode form of a domain name. An unusable name returns "" like PHP's false,
+// which the callers store as an empty domain part.
+func toUnicode(name string) string {
+	if "" == name || !utf8.ValidString(name) {
+		return ""
+	}
+
+	unicode, err := unicodeProfile.ToUnicode(name)
+	if nil != err {
+		return ""
+	}
+
+	return unicode
+}
+
+// EmailToUTF8 is SnappyMail\IDN::emailToUtf8(): only the domain part after the
+// last "@" is converted, and an address without "@" is returned unchanged.
+func EmailToUTF8(address string) string {
+	index := strings.LastIndex(address, "@")
+	if 0 > index {
+		return address
+	}
+	return address[:index+1] + toUnicode(address[index+1:])
+}

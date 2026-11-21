@@ -46,7 +46,7 @@ func TestPingHeadHasNoBody(t *testing.T) {
 func TestRegisterAddsPingToTheRouter(t *testing.T) {
 	paths := httpx.WebPaths{Version: "0.0.0", VersionRoot: t.TempDir()}
 	router := web.NewRouter(web.DefaultConfig(), nil, paths, nil)
-	Register(router)
+	Register(router, nil)
 
 	recorder := httptest.NewRecorder()
 	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/?/Ping/0/", nil))
