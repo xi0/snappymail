@@ -542,6 +542,10 @@ func newAppData(
 		LocalSettings: storage.NewSettingsStorage(localStorageProvider),
 		Cache:         cache,
 		Domains:       domains,
+		// FilesProvider() and StorageProvider(): the uploaded attachment blobs
+		// and the account CONFIG entries (?/Upload and ?/Raw, step 12).
+		Files:   storage.NewFiles(storageDir),
+		Storage: storageProvider,
 		// Go resizes thumbnails itself (golang.org/x/image), so the equivalent
 		// of PHP's gd/imagick check is always true.
 		AttachmentThumbnails: true,

@@ -5,6 +5,7 @@ go 1.27.3
 require (
 	github.com/andybalholm/brotli v1.3.0
 	golang.org/x/crypto v0.59.0
+	golang.org/x/image v0.48.0
 	golang.org/x/net v0.63.0
 )
 
@@ -29,7 +30,6 @@ require (
 	github.com/smallstep/pkcs7 v0.2.3 // indirect
 	github.com/xdg-go/scram v1.4.0 // indirect
 	github.com/xdg-go/stringprep v1.0.4 // indirect
-	golang.org/x/image v0.48.0 // indirect
 	golang.org/x/oauth2 v0.38.0 // indirect
 	golang.org/x/sys v0.50.0 // indirect
 	golang.org/x/text v0.44.0 // indirect

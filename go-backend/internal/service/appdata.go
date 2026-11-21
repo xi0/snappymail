@@ -146,6 +146,14 @@ type Options struct {
 	Domains DomainLister
 	// AddressBook is AddressBookProvider() (step 22).
 	AddressBook AddressBook
+	// Files is FilesProvider(): the uploaded attachment blobs (step 12).
+	Files *storage.Files
+	// Storage is StorageProvider(): account CONFIG entries such as the user
+	// background (step 12).
+	Storage *storage.Provider
+	// MessageStreamer is MailClient()->MessageMimeStream() for the Raw message
+	// endpoints (step 14). A nil value disables the message branches.
+	MessageStreamer MessageStreamer
 	// Plugins is Plugins() (step 28).
 	Plugins Plugins
 	// Admin is the admin session of the admin area (step 27).

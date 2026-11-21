@@ -39,5 +39,9 @@ func Register(router *web.Router, appData *AppData) {
 		router.Register("Lang", appData.Lang)
 		router.Register("Css", appData.Css)
 		router.Register("Plugins", appData.Plugins)
+		router.Register("Upload", appData.Upload)
+		router.Register("UploadContacts", appData.UploadContacts)
+		router.Register("UploadBackground", appData.UploadBackground)
+		router.Register("Raw", appData.Raw)
 	}
 }
