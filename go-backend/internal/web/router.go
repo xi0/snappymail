@@ -83,6 +83,25 @@ func (rt *Router) Register(name string, service ServiceFunc) {
 	rt.services[name] = service
 }
 
+// service resolves a "?/Name" endpoint.
+//
+// PHP dispatches through the "Service<Name>" method name and method_exists() /
+// the dynamic call are case-insensitive, so "?mailto&to=…" (the spelling
+// app.js registerMailto() uses) reaches ServiceMailto() just like "?/Mailto".
+func (rt *Router) service(name string) (ServiceFunc, bool) {
+	if service, ok := rt.services[name]; ok {
+		return service, true
+	}
+
+	for registered, service := range rt.services {
+		if strings.EqualFold(registered, name) {
+			return service, true
+		}
+	}
+
+	return nil, false
+}
+
 // Config returns the pipeline configuration.
 func (rt *Router) Config() Config { return rt.config }
 
@@ -131,7 +150,7 @@ func (rt *Router) ServeHTTP(writer http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if service, ok := rt.services[route.Name]; ok && service(writer, r, route) {
+		if service, ok := rt.service(route.Name); ok && service(writer, r, route) {
 			return
 		}
 

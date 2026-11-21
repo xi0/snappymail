@@ -37,6 +37,7 @@ import (
 	"github.com/xi0/snappymail/go-backend/internal/domain"
 	"github.com/xi0/snappymail/go-backend/internal/httpx"
 	"github.com/xi0/snappymail/go-backend/internal/l10n"
+	"github.com/xi0/snappymail/go-backend/internal/logx"
 	"github.com/xi0/snappymail/go-backend/internal/storage"
 	"github.com/xi0/snappymail/go-backend/internal/themes"
 	"github.com/xi0/snappymail/go-backend/internal/web"
@@ -176,6 +177,10 @@ type Options struct {
 	// cryptox.Jar + auth.Authenticator here). A nil factory serves the guest
 	// state only.
 	NewSession func(w http.ResponseWriter, r *http.Request) *Session
+	// Logger is the SnappyMail\Log sink of the endpoints that only log:
+	// ?/CspReport (SnappyMail\HTTP\CSP::logReport()). A nil logger drops the
+	// reports.
+	Logger *logx.Logger
 }
 
 // Session is the request-scoped auth state of AppData: the cookies, the

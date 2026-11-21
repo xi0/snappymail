@@ -9,8 +9,8 @@
 // Step 10 wires the ?/AppData and ?/AdminAppData endpoints (internal/service)
 // with the salt, the storage/settings/domain providers and the per-request
 // session. Step 11 renders the application shell through internal/pages and
-// serves ?/Lang, ?/Css and ?/Plugins. The upload, raw and misc endpoints are
-// filled in by steps 12–13.
+// serves ?/Lang, ?/Css and ?/Plugins. Step 12 adds ?/Upload and ?/Raw and step
+// 13a the small ?/Mailto, ?/Sso and ?/CspReport endpoints (internal/service).
 //
 // The pieces below are the ones the later steps need to stay compatible with:
 //
@@ -550,6 +550,9 @@ func newAppData(
 		// of PHP's gd/imagick check is always true.
 		AttachmentThumbnails: true,
 		NewSession:           newSession,
+		// The ?/CspReport logger (SnappyMail\HTTP\CSP::logReport()). A nil
+		// logger must stay a nil *logx.Logger, not a typed nil interface.
+		Logger: logger,
 	})
 }
 

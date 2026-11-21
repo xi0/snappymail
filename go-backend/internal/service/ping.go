@@ -1,9 +1,9 @@
 // Package service implements the non-JSON endpoints of RainLoop\ServiceActions
-// (?/Ping, ?/AppData, ?/Lang, ?/Css, ?/Raw, ?/Upload, …).
+// (?/Ping, ?/AppData, ?/Lang, ?/Css, ?/Raw, ?/Upload, ?/Mailto, ?/Sso, …).
 //
 // Step 2 needs the Ping endpoint so the router can be verified end to end,
-// step 10 adds AppData/AdminAppData, step 11 adds Lang/Css/Plugins and the
-// remaining services are added by steps 12–13.
+// step 10 adds AppData/AdminAppData, step 11 adds Lang/Css/Plugins, step 12 the
+// uploads and Raw streaming and step 13a Mailto/Sso/CspReport.
 package service
 
 import (
@@ -43,5 +43,9 @@ func Register(router *web.Router, appData *AppData) {
 		router.Register("UploadContacts", appData.UploadContacts)
 		router.Register("UploadBackground", appData.UploadBackground)
 		router.Register("Raw", appData.Raw)
+		// Step 13a: the endpoints that need no new infrastructure.
+		router.Register("Mailto", appData.Mailto)
+		router.Register("Sso", appData.Sso)
+		router.Register("CspReport", appData.CspReport)
 	}
 }
