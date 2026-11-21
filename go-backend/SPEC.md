@@ -429,15 +429,44 @@ Each step below lists: **goal**, **references to read**, **deliverables**, **act
 * Done when: an upload round-trips into the files provider with PHP-identical metadata; `RawDownload` returns
   206 for `Range: bytes=10-20` and identical headers.
 
-#### Step 13 — Proxy, mailto, ping, test, SSO, CSP report
-* Goal: the remaining small endpoints.
-* Read: `ServiceActions.php` (`ServiceProxyExternal`, `ServiceMailto`, `ServicePing`, `ServiceTest`,
-  `ServiceCspReport`), `snappymail/http/*` (`Request`, `CSP`, `SecFetch`), `Integrity::test`.
-* Deliver: `service/misc.go`: external image proxy (only with `labs.use_local_proxy_for_external_images` and a
-  logged-in account, max 2 redirects, `image/*` only, `X-Content-*` headers, cache by key), mailto cookie,
-  `text/plain` ping, test report, SSO hash consumption (cache key, decrypt, login, redirect `./`), CSP report log.
-* Done when: proxy 404s when disabled or when the upstream is not an image; `?/Sso?hash=…` logs in and the hash
-  is single-use.
+#### Step 13a — Mailto, SSO, CSP report
+* Goal: the small endpoints that need no new infrastructure.
+* Read: `ServiceActions.php` (`ServiceMailto`, `ServiceSso`, `ServiceCspReport`), `Actions::AUTH_MAILTO_TOKEN_KEY`,
+  `SnappyMail\HTTP\CSP::logReport()`, `Utils::EncodeKeyValuesQ`.
+* Deliver: `service/misc.go` with `ServiceMailto` (when `to` matches `^mailto:` set the `smmailtoauth` cookie via
+  `auth.EncodeKeyValuesQ({Time, MailTo, To})` and redirect `./`), `ServiceSso` (a thin wrapper over the existing
+  `auth.DoSso`, which already reads the `Sso/Data/<hash>/Login/` cache entry, drops it, decrypts, logs in and
+  applies `AdditionalOptions.language`; redirect `./`), and `ServiceCspReport` (read the body, skip
+  `moz-extension` sources, log via `logx`, reply `204`); register the three on the router and wire them in
+  `main.go`. `ServicePing` already exists (`service/ping.go`, Step 2) and needs no change.
+* Done when: `?/Sso?hash=…` logs in and the hash is single-use (a second use is a no-op redirect);
+  `?/Mailto?to=mailto:…` sets `smmailtoauth` and redirects `./`; a `CspReport` POST yields `204` and logs the
+  report (and does not log `moz-extension`).
+
+#### Step 13b — Outbound HTTP client and the test report
+* Goal: the shared `SnappyMail\HTTP\Request`/`Response` port plus `?/Test`, which both this and Step 13c need.
+* Read: `snappymail/http/request.php`, `snappymail/http/request/socket.php`, `snappymail/http/response.php`,
+  `snappymail/integrity.php` (`Integrity::test`).
+* Deliver: `internal/httpclient` (http/https scheme allowlist, timeout, `MaxRedirects` following only
+  GET/HEAD on 301/302/303/307, `StreamBodyTo`, `FinalURI`, `Status`/`Headers`/`GetHeader`), and
+  `service/misc.go` `ServiceTest` (the `Integrity::test` report: the PHP version/extension checks are trivially
+  green in Go, then `HEAD` each served static asset and compare `content-length`, `gzip` and `br`
+  `content-encoding`).
+* Done when: the client refuses a non-http(s) scheme and stops after `MaxRedirects`; `?/Test` renders its report
+  against the running server and flags a content-length mismatch.
+
+#### Step 13c — External image proxy
+* Goal: `ServiceProxyExternal`, on top of the Step 13b client.
+* Read: `ServiceActions.php::ServiceProxyExternal`, `SnappyMail\File\MimeType::fromStream`,
+  `Actions::verifyCacheByKey`/`cacheByKey`.
+* Deliver: `service/misc.go` `ServiceProxyExternal`: config + logged-in-account gate
+  (`labs.use_local_proxy_for_external_images`), `verifyCacheByKey`, url-safe-base64 decode, `X-Content-Location`,
+  a `GET` with `MaxRedirects=2` streamed to a temp file, MIME sniff (`mime.FromContent`), `image/*` only,
+  `cacheByKey`, `Content-Type`/`Cache-Control`/`Expires`/`X-Content-Redirect-Location` and the streamed body, with
+  `404` plus `X-Content-Error` fallbacks. `cacheByKey` stays a no-op stub (like the existing `verifyCacheByKey`)
+  until Step 33.
+* Done when: the proxy 404s when disabled, when no account is logged in, or when the upstream is not an image;
+  an image streams with the correct headers.
 
 ---
 
@@ -672,7 +701,8 @@ Each step below lists: **goal**, **references to read**, **deliverables**, **act
 * Deliver: full CSP builder with plugin hook `main.content-security-policy` and nonce injection, Sec-Fetch rule
   matcher (`security.secfetch_allow` default `site=same-origin;site=none`), HSTS, ETag/`Expires`/
   `Cache-Control` helpers used by `Css`/`Lang`/`Plugins`/`Raw`/`ProxyExternal`, HTTP→HTTPS redirect,
-  graceful `503` for `max_sys_getloadavg`.
+  graceful `503` for `max_sys_getloadavg`. `Actions::cacheByKey`/`verifyCacheByKey` are introduced as no-op stubs
+  in Steps 12–13c; this step replaces them with the real ETag/`304` handling.
 * Also deliver the harness: `make diff-record` (runs the PHP backend via `php -S` and the Go binary against
   copies of the same data folder, stores normalised responses under `go-backend/testdata/<step>/`),
   `make diff-test` (Go test that diffs normalised output: `epoch`, nonces, `Date`, mtimes and random ids
