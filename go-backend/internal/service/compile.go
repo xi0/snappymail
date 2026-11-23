@@ -8,6 +8,7 @@ package service
 // plugins.enable = Off.
 
 import (
+	"github.com/xi0/snappymail/go-backend/internal/account"
 	"github.com/xi0/snappymail/go-backend/internal/l10n"
 	"github.com/xi0/snappymail/go-backend/internal/storage"
 	"github.com/xi0/snappymail/go-backend/internal/themes"
@@ -99,8 +100,43 @@ func (a *AppData) Cacher() *storage.Cache {
 	return a.options.Cache
 }
 
+// NewCacher is Actions::Cacher($oAccount): a cache client on the same folder
+// whose driver is prefixed with the account, so the per-account entries (the
+// read-receipt marks, the UID lists) live next to the system data without
+// colliding with it. A nil account uses the "_default_" (unprefixed) folder,
+// exactly like PHP's empty key.
+func (a *AppData) NewCacher(resolved *account.Account) *storage.Cache {
+	dir := ""
+	if nil != a.options.Cache {
+		dir = a.options.Cache.Dir()
+	}
+	if "" == dir {
+		return nil
+	}
+
+	driver, err := storage.NewCacheFileDriver(dir)
+	if nil != err {
+		return nil
+	}
+
+	prefix := ""
+	if nil != resolved {
+		prefix = resolved.Email()
+	}
+	driver.SetPrefix(prefix)
+
+	cache := storage.NewCache(driver)
+	cache.SetCacheIndex(a.config().GetString("cache", "fast_cache_index", ""))
+	return cache
+}
+
 // Config exposes the application configuration (the index page and the
 // endpoints read the same values).
 func (a *AppData) Config() Config {
 	return a.config()
+}
+
+// Salt is APP_SALT, the value the account hashes and the RawKeys are built with.
+func (a *AppData) Salt() string {
+	return a.options.Salt
 }

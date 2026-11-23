@@ -203,6 +203,19 @@ func (c *Cache) SetCacheIndex(index string) *Cache {
 // IsInited is CacheClient::IsInited().
 func (c *Cache) IsInited() bool { return nil != c.driver }
 
+// Dir returns the cache folder of the driver, or "" when it has none. It exists
+// so a caller can build a second client (Actions::Cacher($oAccount)) on the same
+// folder with another prefix, like PHP's CacheClient::SetDriver().
+func (c *Cache) Dir() string {
+	if nil == c || nil == c.driver {
+		return ""
+	}
+	if file, ok := c.driver.(*CacheFileDriver); ok && nil != file {
+		return file.Dir()
+	}
+	return ""
+}
+
 // Set is CacheClient::Set().
 func (c *Cache) Set(key, value string) error {
 	if nil == c.driver {

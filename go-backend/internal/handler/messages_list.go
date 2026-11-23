@@ -1,20 +1,19 @@
 package handler
 
 // The message actions of \RainLoop\Actions\Messages. Step 16 ports the message
-// list (DoMessageList); steps 17–20 add the view, flags/delete/move and send
+// list (DoMessageList) and step 17 the message view (DoMessage, in
+// messages_view.go); steps 18–20 add the flags/delete/move, send and attachment
 // actions in their own files.
 
 import (
-	"encoding/base64"
-	"encoding/json"
-
 	"github.com/xi0/snappymail/go-backend/internal/appctx"
 	"github.com/xi0/snappymail/go-backend/internal/mail"
 )
 
-// RegisterMessages registers the DoMessageList action.
+// RegisterMessages registers the DoMessage* actions of the mail core.
 func RegisterMessages(d *Dispatcher) {
 	d.Register("MessageList", doMessageList)
+	d.Register("Message", doMessage)
 }
 
 // doMessageList is Actions\Messages::DoMessageList().
@@ -96,23 +95,20 @@ func doMessageList(ctx *Context) (any, error) {
 	return ctx.DefaultResponse(collection, nil), nil
 }
 
-// decodeRawKeyMap is Actions::decodeRawKey() for a RawKey without an account
-// hash: URL safe base64 of a JSON object, or nil.
+// decodeRawKeyMap is Actions::decodeRawKey() for a RawKey that only selects a
+// folder/list of the token authenticated account (it carries no account hash):
+// URL safe base64 of a JSON object, or nil.
 func decodeRawKeyMap(rawKey string) map[string]any {
-	if "" == rawKey {
+	values := decodeRawKey(rawKey, "")
+	if nil == values {
 		return nil
 	}
-
-	decoded, err := base64.RawURLEncoding.DecodeString(rawKey)
-	if nil != err {
-		if decoded, err = base64.URLEncoding.DecodeString(rawKey); nil != err {
-			return nil
+	// A JSON list is a PHP array as well, but every named lookup on it comes
+	// back empty, so it is reported as "no values" here.
+	for _, key := range []string{"folder", "limit", "offset", "search", "sort", "hash"} {
+		if _, ok := values[key]; ok {
+			return values
 		}
 	}
-
-	var values map[string]any
-	if nil != json.Unmarshal(decoded, &values) {
-		return nil
-	}
-	return values
+	return nil
 }

@@ -133,6 +133,29 @@ func (f *FetchResponse) GetHeaderFieldsValue() string {	if nil == f {
 	return ""
 }
 
+// GetBodyPartValue is the FetchType::BODY.'['.$sPartId.']' lookup of
+// MailSo\Mail\Message::fromFetchResponse(), including the "<0>" partial
+// fallback: a server answers a BODY.PEEK[n]<0.limit> request with BODY[n]<0>.
+func (f *FetchResponse) GetBodyPartValue(partID string) (string, bool) {
+	if nil == f {
+		return "", false
+	}
+	for _, name := range []string{
+		FetchBody + "[" + partID + "]",
+		FetchBody + "[" + partID + "]<0>",
+	} {
+		value, ok := f.GetFetchValue(name)
+		if !ok {
+			continue
+		}
+		if text, isText := value.textValue(); isText {
+			return text, true
+		}
+		return "", false
+	}
+	return "", false
+}
+
 // FetchValueStrings is the flattened string list of the value that follows the
 // attribute name: a single atom/string becomes a one element list.
 func (f *FetchResponse) FetchValueStrings(itemName string) []string {

@@ -120,17 +120,20 @@ func (m *Message) getFlags() []string {
 
 // MessageFromFetchResponse is Message::fromFetchResponse().
 //
-// Partial (Step 16): the list does not fetch body text, so plain/html stay empty
-// exactly like PHP's list (which does not fetch BODY[part] either). Step 17 adds
-// the body decoding to the view path.
-func MessageFromFetchResponse(folder string, response *imapclient.FetchResponse) *Message {
+// bodyStructure is the optional third argument of the PHP method: the view
+// fetches BODYSTRUCTURE once and passes it in, the list lets the response carry
+// it.
+func MessageFromFetchResponse(folder string, response *imapclient.FetchResponse, bodyStructure ...*imapclient.BodyStructure) *Message {
 	if nil == response {
 		return nil
 	}
 
 	message := &Message{folder: folder}
 
-	bodyStructure := response.GetFetchBodyStructure()
+	structure := response.GetFetchBodyStructure()
+	if 0 < len(bodyStructure) && nil != bodyStructure[0] {
+		structure = bodyStructure[0]
+	}
 
 	if values := response.FetchValueStrings(imapclient.FetchFlags); nil != values {
 		message.flags = make([]string, len(values))
@@ -159,8 +162,8 @@ func MessageFromFetchResponse(folder string, response *imapclient.FetchResponse)
 	}
 
 	charset := ""
-	if nil != bodyStructure {
-		charset = normalizeCharset(bodyStructure.SearchCharset())
+	if nil != structure {
+		charset = normalizeCharset(structure.SearchCharset())
 	}
 
 	rawHeaders := response.GetHeaderFieldsValue()
@@ -228,7 +231,7 @@ func MessageFromFetchResponse(folder string, response *imapclient.FetchResponse)
 		message.subject = message.subject[10:]
 	}
 
-	message.applyBodyStructure(bodyStructure)
+	message.applyBodyStructure(structure, response, message.headers, charset)
 
 	return message
 }
@@ -294,11 +297,21 @@ func (m *Message) applySpamHeaders(headers *mime.HeaderCollection) {
 	}
 }
 
-// applyBodyStructure is the "$oBodyStructure" block of fromFetchResponse for the
-// parts the list exposes (pgp/smime markers and attachments).
-func (m *Message) applyBodyStructure(bodyStructure *imapclient.BodyStructure) {
+// applyBodyStructure is the "$oBodyStructure" block of fromFetchResponse: the
+// pgp/smime markers, the decoded text (html/plain) bodies and the attachments.
+func (m *Message) applyBodyStructure(
+	bodyStructure *imapclient.BodyStructure,
+	response *imapclient.FetchResponse,
+	headers *mime.HeaderCollection,
+	charset string,
+) {
 	if nil == bodyStructure {
 		return
+	}
+
+	micAlg := ""
+	if nil != headers {
+		micAlg = headers.ParameterValue(mime.HeaderContentType, "micalg")
 	}
 
 	for _, part := range bodyStructure.SearchByContentType("multipart/encrypted") {
@@ -311,7 +324,11 @@ func (m *Message) applyBodyStructure(bodyStructure *imapclient.BodyStructure) {
 		if part.IsSMimeEncrypted() {
 			m.smimeEncrypted = map[string]any{"partId": part.PartID()}
 		} else if part.IsSMimeSigned() {
-			m.smimeSigned = map[string]any{"partId": part.PartID(), "detached": false}
+			m.smimeSigned = map[string]any{
+				"partId":   part.PartID(),
+				"micAlg":   micAlg,
+				"detached": false,
+			}
 		}
 	}
 
@@ -320,15 +337,71 @@ func (m *Message) applyBodyStructure(bodyStructure *imapclient.BodyStructure) {
 			m.pgpSigned = map[string]any{
 				"partId":    part.SubParts()[0].PartID(),
 				"sigPartId": part.SubParts()[1].PartID(),
+				"micAlg":    micAlg,
 			}
 		} else if part.IsSMimeSigned() {
 			m.smimeSigned = map[string]any{
 				"partId":    part.PartID(),
 				"sigPartId": part.SubParts()[1].PartID(),
+				"micAlg":    micAlg,
 				"detached":  true,
 			}
 		}
 		break
+	}
+
+	// The text parts: only the view fetches their BODY[], so the list leaves
+	// html/plain empty exactly like PHP does.
+	if textParts := bodyStructure.GetHtmlAndPlainParts(); 0 < len(textParts) {
+		if "" == charset {
+			charset = mime.CharsetUTF8
+		}
+
+		var (
+			htmlParts  []string
+			plainParts []string
+		)
+
+		for _, part := range textParts {
+			text, ok := response.GetBodyPartValue(part.PartID())
+			if !ok || "" == text {
+				continue
+			}
+
+			text = mime.DecodeEncodingValue(text, part.ContentTransferEncoding())
+
+			partCharset := part.Charset()
+			if "" == partCharset {
+				partCharset = charset
+			}
+			text = mime.ConvertEncoding(text, mime.NormalizeCharset(partCharset, true), mime.CharsetUTF8)
+			text = mime.Utf8Clear(text)
+
+			// https://datatracker.ietf.org/doc/html/rfc4880#section-7
+			// Cleartext Signature.
+			if nil == m.pgpSigned && strings.Contains(text, "-----BEGIN PGP SIGNED MESSAGE-----") {
+				m.pgpSigned = map[string]any{"partId": part.PartID()}
+			}
+
+			if strings.Contains(text, "-----BEGIN PGP MESSAGE-----") {
+				// The key ids need the GnuPG binary (step 25), so the list stays
+				// empty here.
+				m.pgpEncrypted = map[string]any{"partId": part.PartID(), "keyIds": []any{}}
+			}
+
+			if "text/html" == part.ContentType() {
+				htmlParts = append(htmlParts, text)
+				continue
+			}
+
+			if part.IsFlowedFormat() {
+				text = mime.DecodeFlowedFormat(text)
+			}
+			plainParts = append(plainParts, text)
+		}
+
+		m.html = strings.Join(htmlParts, "<br>")
+		m.plain = strings.TrimSpace(strings.Join(plainParts, "\n"))
 	}
 
 	if parts := bodyStructure.SearchAttachmentsParts(); 0 < len(parts) {
@@ -337,6 +410,19 @@ func (m *Message) applyBodyStructure(bodyStructure *imapclient.BodyStructure) {
 			m.attachments = append(m.attachments, &Attachment{folder: m.folder, uid: m.uid, structure: part})
 		}
 	}
+}
+
+// ETag is Message::ETag(): the HTTP cache key of the rendered message.
+func (m *Message) ETag(clientHash string) string {
+	if nil == m {
+		return ""
+	}
+	return md5Hex("MessageHash/" + strings.Join([]string{
+		m.folder,
+		strconv.Itoa(m.uid),
+		strings.Join(m.getFlags(), ","),
+		clientHash,
+	}, "/"))
 }
 
 // setSpamScore is Message::setSpamScore().
@@ -636,9 +722,12 @@ func parseDraftInfo(raw string) []any {
 	return nil
 }
 
-// normalizeCharset is Utils::NormalizeCharset() for the charsets Go handles.
+// normalizeCharset is Utils::NormalizeCharset() ($bAsciAsUtf8 = false).
 func normalizeCharset(value string) string {
-	return strings.TrimSpace(value)
+	if "" == value {
+		return ""
+	}
+	return mime.NormalizeCharset(value, false)
 }
 
 // substr is PHP's substr($value, $start, $length) for a non-negative start.

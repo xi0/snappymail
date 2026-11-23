@@ -74,11 +74,25 @@ type Plugins interface {
 	RunHook(name string, args ...any)
 }
 
+// Cacher is the MailSo\Cache\CacheClient surface responseObject() uses for the
+// read-receipt suppression. *storage.Cache satisfies it.
+type Cacher interface {
+	// GetDefault is CacheClient::Get($sKey, $mDefault).
+	GetDefault(key, defaultValue string) string
+}
+
+// CacherFactory builds Actions::Cacher($oAccount): the cache client of one
+// account (or of the "_default_" prefix when resolved is nil).
+type CacherFactory func(resolved *account.Account) Cacher
+
 // Options build a Dispatcher. Everything but Version is optional; a nil
 // dependency keeps the corresponding behaviour unported (see the step notes).
 type Options struct {
 	// Version is APP_VERSION, used by DoVersion.
 	Version string
+	// Salt is APP_SALT, needed by the RawKey account-hash validation
+	// (Actions::decodeRawKey()).
+	Salt string
 	// Logger receives the JSON/POST/SERVICE log lines.
 	Logger Logger
 	// Session builds the per-request session.
@@ -87,6 +101,9 @@ type Options struct {
 	Admin Admin
 	// Plugins runs the hooks and additional JSON actions.
 	Plugins Plugins
+	// Cacher is Actions::Cacher(), used to suppress an already sent read
+	// receipt of a viewed message.
+	Cacher CacherFactory
 	// Now is the clock of the envelope "epoch"; nil uses time.Now.
 	Now func() time.Time
 	// Registry pre-populated with handlers; nil creates an empty one and the
@@ -108,10 +125,12 @@ type Options struct {
 // Dispatcher is the port of \RainLoop\ServiceActions::ServiceJson().
 type Dispatcher struct {
 	version       string
+	salt          string
 	logger        Logger
 	newSession    SessionFactory
 	admin         Admin
 	plugins       Plugins
+	newCacher     CacherFactory
 	now           func() time.Time
 	registry      *Registry
 	config        Config
@@ -124,10 +143,12 @@ type Dispatcher struct {
 func NewDispatcher(options Options) *Dispatcher {
 	dispatcher := &Dispatcher{
 		version:       options.Version,
+		salt:          options.Salt,
 		logger:        options.Logger,
 		newSession:    options.Session,
 		admin:         options.Admin,
 		plugins:       options.Plugins,
+		newCacher:     options.Cacher,
 		now:           options.Now,
 		registry:      options.Registry,
 		config:        options.Config,

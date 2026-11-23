@@ -435,9 +435,10 @@ func newHandler(tree installTree, logger *logx.Logger, application *config.Appli
 	// AppData endpoints, so the connection/CSRF token checks and the account
 	// resolution behave like PHP. Step 15 adds the folder surface: the
 	// settings_local provider, the file provider and the per-request IMAP
-	// connection (initMailClientConnection). The admin session (step 27) and the
-	// plugin manager (step 28) are still unwired.
-	options := handler.Options{Version: tree.version}
+	// connection (initMailClientConnection), step 17 the message view with the
+	// APP_SALT account hash of the RawKeys and the per-account cache. The admin
+	// session (step 27) and the plugin manager (step 28) are still unwired.
+	options := handler.Options{Version: tree.version, Salt: appData.Salt()}
 	if nil != logger {
 		// A typed-nil *logx.Logger would be a non-nil handler.Logger interface
 		// and panic on the first log line, so it is only set when usable.
@@ -455,6 +456,16 @@ func newHandler(tree installTree, logger *logx.Logger, application *config.Appli
 	options.LocalSettings = appData.SettingsLocal()
 	if files := appData.FilesProvider(); nil != files {
 		options.Files = files
+	}
+	// Actions::Cacher($oAccount): the per-account cache of the read-receipt
+	// marks (DoMessage's responseObject()). A typed-nil *storage.Cache would be
+	// a non-nil interface, so it is only wrapped when usable.
+	options.Cacher = func(resolved *account.Account) handler.Cacher {
+		cache := appData.NewCacher(resolved)
+		if nil == cache {
+			return nil
+		}
+		return cache
 	}
 	// Actions::MailClient() + initMailClientConnection().
 	newSession := appData.NewSession

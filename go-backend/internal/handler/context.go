@@ -175,6 +175,53 @@ func (c *Context) SaveLocalSettings(account *account.Account, settings *storage.
 	return c.dispatcher.localSettings.Save(account, settings)
 }
 
+// accountHash is $account->Hash() of the current account, the value the RawKeys
+// carry ("accountHash"), or "" without an account.
+func (c *Context) accountHash() string {
+	resolved, err := c.Account(false)
+	if nil != err || nil == resolved || nil == c.dispatcher {
+		return ""
+	}
+	return resolved.Hash(c.dispatcher.salt)
+}
+
+// Cacher is Actions::Cacher($oAccount): nil when no cache factory is wired.
+func (c *Context) Cacher() Cacher {
+	if nil == c || nil == c.dispatcher || nil == c.dispatcher.newCacher {
+		return nil
+	}
+
+	// PHP keys the cache by the *main* account of the session.
+	resolved, err := c.Account(false)
+	if nil != err {
+		resolved = nil
+	}
+	if main := c.mainAccount(); nil != main {
+		resolved = main
+	}
+
+	return c.dispatcher.newCacher(resolved)
+}
+
+// mainAccountSession is the optional Session extension the per-account cache
+// key needs (Actions::GetMainEmail()). *auth.Authenticator implements it.
+type mainAccountSession interface {
+	GetMainAccountFromToken(throw bool) (*account.Account, error)
+}
+
+// mainAccount is getMainAccountFromToken() when the session offers it.
+func (c *Context) mainAccount() *account.Account {
+	session, ok := c.session.(mainAccountSession)
+	if !ok || nil == session {
+		return nil
+	}
+	main, err := session.GetMainAccountFromToken(false)
+	if nil != err {
+		return nil
+	}
+	return main
+}
+
 // isCheckableFolder is in_array($sFolderFullName, $aCheckableFolder) of
 // Actions\Response::responseObject(): the list is loaded once per request.
 func (c *Context) isCheckableFolder(fullName string) bool {
