@@ -38,7 +38,10 @@ func (d *Dispatcher) responseObject(value any, parent string, ctx *Context) any 
 		return result
 
 	case JSONSerializable:
-		return typed.JSONSerialize()
+		// PHP's json_encode() recursively calls jsonSerialize() on nested
+		// objects; Go's json.Marshal does not, so recurse here to keep the
+		// nested EmailCollection/HeaderCollection/Message documents resolved.
+		return d.responseObject(typed.JSONSerialize(), parent, ctx)
 
 	case map[string]any:
 		result := make(map[string]any, len(typed))

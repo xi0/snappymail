@@ -204,6 +204,24 @@ func (p *responseParser) readToken() (token, bool) {
 		if ' ' == character || '\t' == character || '(' == character || ')' == character {
 			break
 		}
+		// A "[...]" section is part of the atom, like the PHP parser's
+		// bTreatAsAtom branch: "BODY[HEADER.FIELDS (SUBJECT)]" stays one atom.
+		if '[' == character {
+			depth := 0
+			for p.offset < len(text) {
+				current := text[p.offset]
+				p.offset++
+				if '[' == current {
+					depth++
+				} else if ']' == current {
+					depth--
+					if 0 == depth {
+						break
+					}
+				}
+			}
+			continue
+		}
 		p.offset++
 	}
 
