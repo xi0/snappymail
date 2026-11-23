@@ -9,8 +9,10 @@
 // Step 10 wires the ?/AppData and ?/AdminAppData endpoints (internal/service)
 // with the salt, the storage/settings/domain providers and the per-request
 // session. Step 11 renders the application shell through internal/pages and
-// serves ?/Lang, ?/Css and ?/Plugins. Step 12 adds ?/Upload and ?/Raw and step
-// 13a the small ?/Mailto, ?/Sso and ?/CspReport endpoints (internal/service).
+// serves ?/Lang, ?/Css and ?/Plugins. Step 12 adds ?/Upload and ?/Raw, step 13a
+// the small ?/Mailto, ?/Sso and ?/CspReport endpoints and step 13b the outbound
+// HTTP client (internal/httpclient) with the ?/Test integrity report
+// (internal/service).
 //
 // The pieces below are the ones the later steps need to stay compatible with:
 //

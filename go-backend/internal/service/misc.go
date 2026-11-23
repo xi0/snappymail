@@ -6,6 +6,10 @@ package service
 //	GET  ?/Sso&hash=…           ServiceActions::ServiceSso()
 //	POST ?/CspReport            ServiceActions::ServiceCspReport()
 //
+// plus the ?/Test diagnostics report of step 13b (ServiceActions::ServiceTest →
+// SnappyMail\Integrity::test()), which probes the running server through
+// internal/httpclient.
+//
 // ServiceMailto() puts the "mailto:" URL into the single-use smmailtoauth cookie
 // (Actions::AUTH_MAILTO_TOKEN_KEY), which AppData() reports once as "mailToEmail"
 // and then drops (appdata_user.go: mailTo). ServiceSso() logs in with the
@@ -28,13 +32,18 @@ package service
 
 import (
 	"encoding/json"
+	"fmt"
+	"html"
 	"io"
 	"net/http"
+	"os"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/xi0/snappymail/go-backend/internal/auth"
+	"github.com/xi0/snappymail/go-backend/internal/httpclient"
 	"github.com/xi0/snappymail/go-backend/internal/httpx"
 	"github.com/xi0/snappymail/go-backend/internal/logx"
 	"github.com/xi0/snappymail/go-backend/internal/web"
@@ -241,4 +250,184 @@ func cspReportFromExtension(report any) bool {
 	source, _ := details["source-file"].(string)
 
 	return "moz-extension" == source
+}
+
+// integrityAssets are the files Integrity::test() probes: the bundles the
+// frontend loads (the unminified variants are commented out in PHP).
+var integrityAssets = []string{
+	"static/css/app.min.css",
+	"static/js/min/libs.min.js",
+	"static/js/min/app.min.js",
+	"static/js/min/openpgp.min.js",
+}
+
+// integrityEncodings are the content codings Integrity::test() checks, in the
+// order the report lists them.
+var integrityEncodings = []string{"gzip", "br"}
+
+// Test is ServiceActions::ServiceTest(): the Integrity::test() diagnostics
+// report of the running server.
+//
+// ServerNoCache() runs first, like in PHP. Integrity::test() echoes its report
+// (no Content-Type header, so it stays text/html) and ServiceTest() returns an
+// empty string; the handler writes the report directly so it stays composable,
+// and answers the same HTML.
+func (a *AppData) Test(w http.ResponseWriter, r *http.Request, _ *web.Route) bool {
+	httpx.NoStore(w)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.WriteString(w, a.integrityReport(r))
+
+	return true
+}
+
+// integrityReport is Integrity::test().
+func (a *AppData) integrityReport(r *http.Request) string {
+	var report strings.Builder
+
+	// Integrity::phpVersion() and Integrity::phpExtensions() are the two error
+	// blocks of the PHP report. A Go binary has no PHP version to check, and
+	// openssl/mbstring/zlib/json/libxml/dom/fileinfo are part of the binary or
+	// the standard library, so both checks are always green and print nothing.
+
+	// MailSo\Base\Http::GetHost(false): the report has to address the server it
+	// is rendered by.
+	host := httpx.Host(r, false, false)
+	if "" == host {
+		report.WriteString(`<p style="color: red">Invalid Host header</p>`)
+		return report.String()
+	}
+
+	base := httpx.Scheme(r) + "://" + host + a.options.Paths.VersionPath()
+
+	// PHP appends ".gz"/".br" to the asset and HEADs that pre-compressed
+	// sibling (Apache/mod_deflate); the Go backend compresses on the fly
+	// (webmail.compress_output) and serves no sibling files, so the encoded
+	// variants are requested with an Accept-Encoding header instead.
+	report.WriteString(`<p>Assets are served from <code>` + html.EscapeString(base) +
+		`</code>. The gzip/brotli variants are compressed on the fly by ` +
+		`<code>webmail.compress_output</code> instead of being read from a ` +
+		`pre-compressed <code>.gz</code>/<code>.br</code> sibling.</p>`)
+
+	client := httpclient.New(a.options.Version)
+
+	for _, asset := range integrityAssets {
+		a.integrityAsset(&report, client, base, asset)
+	}
+
+	return report.String()
+}
+
+// integrityAsset runs the three probes of one file: the plain asset (size on
+// disk versus content-length) and the two content codings.
+func (a *AppData) integrityAsset(report *strings.Builder, client *httpclient.Client, base, asset string) {
+	uri := base + asset
+
+	fmt.Fprintf(report, "<h2>%s</h2>", html.EscapeString(uri))
+
+	response, err := client.Do(http.MethodHead, uri, nil, nil)
+	if a.integrityResponse(report, response, err) {
+		size, found := a.integritySize(asset)
+
+		switch {
+		case !found:
+			fmt.Fprintf(report, `<div style="color: red">asset file not found: %s</div>`,
+				html.EscapeString(a.options.Paths.VersionFile(asset)))
+		case size == int64(phpInt(response.GetHeader("content-length"))):
+			fmt.Fprintf(report, "<div>content-length matches size %d</div>", size)
+		default:
+			fmt.Fprintf(report, `<div style="color: red">content-length mismatch, should be: %d</div>`,
+				size)
+		}
+	}
+
+	for _, encoding := range integrityEncodings {
+		fmt.Fprintf(report, "<h3>%s encoded</h3>", integrityEncodingName(encoding))
+
+		headers := http.Header{}
+		headers.Set("Accept-Encoding", encoding)
+
+		// The pipeline leaves HEAD requests uncompressed, so the coding can
+		// only be observed with a GET; its body is discarded.
+		client.StreamBodyTo(io.Discard)
+		response, err := client.Do(http.MethodGet, uri, nil, headers)
+		client.StreamBodyTo(nil)
+
+		if !a.integrityResponse(report, response, err) {
+			continue
+		}
+
+		if got := strings.ToLower(response.GetHeader("content-encoding")); got == encoding {
+			report.WriteString("<div>content-encoding matches</div>")
+		} else {
+			fmt.Fprintf(report, `<div style="color: red">content-encoding mismatch, should be: %s</div>`,
+				encoding)
+		}
+	}
+}
+
+// integrityResponse renders the "<details>" block of one probe and reports
+// whether the response can be compared.
+func (a *AppData) integrityResponse(
+	report *strings.Builder,
+	response *httpclient.Response,
+	err error,
+) bool {
+	if nil != err || nil == response {
+		message := "no response"
+		if nil != err {
+			message = err.Error()
+		}
+
+		fmt.Fprintf(report, `<div style="color: red">request failed: %s</div>`,
+			html.EscapeString(message))
+		return false
+	}
+
+	fmt.Fprintf(report, "<details><summary>Status: %d</summary><pre>%s</pre></details>",
+		response.Status, html.EscapeString(integrityHeaderLines(response)))
+
+	return true
+}
+
+// integrityHeaderLines renders $response->headers for the report: one lower
+// case "name: value" line per header, sorted by name.
+//
+// Deviation from PHP: print_r() shows the order the headers arrived in, which
+// net/http does not keep once the response is parsed into a map.
+func integrityHeaderLines(response *httpclient.Response) string {
+	names := make([]string, 0, len(response.Headers))
+	for name := range response.Headers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	var lines strings.Builder
+	for _, name := range names {
+		for _, value := range response.Headers[name] {
+			lines.WriteString(strings.ToLower(name) + ": " + value + "\n")
+		}
+	}
+
+	return lines.String()
+}
+
+// integritySize is filesize(APP_VERSION_ROOT_PATH . $file); the boolean is
+// false where PHP warns and returns false.
+func (a *AppData) integritySize(asset string) (int64, bool) {
+	info, err := os.Stat(a.options.Paths.VersionFile(asset))
+	if nil != err || !info.Mode().IsRegular() {
+		return 0, false
+	}
+
+	return info.Size(), true
+}
+
+// integrityEncodingName is the label of an encoding in the report: PHP writes
+// "gzip encoded" and "brotli encoded".
+func integrityEncodingName(encoding string) string {
+	if "br" == encoding {
+		return "brotli"
+	}
+	return encoding
 }

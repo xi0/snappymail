@@ -69,6 +69,7 @@ func (d miscDomains) GetByEmailAddress(email string) (*domain.Domain, error) {
 // file storage/settings providers, the SSO cache and a capturing logger.
 type miscFixture struct {
 	t        *testing.T
+	tree     testTree
 	appData  *AppData
 	crypter  *cryptox.Crypter
 	cache    *storage.Cache
@@ -122,6 +123,7 @@ func newMiscFixture(t *testing.T) *miscFixture {
 
 	return &miscFixture{
 		t:        t,
+		tree:     fixture.tree,
 		appData:  fixture.appData,
 		crypter:  crypter,
 		cache:    cache,
