@@ -7,12 +7,13 @@ package handler
 // "Action" and "Result" (plus "epoch", added by the dispatcher), and a failure
 // adds "code", "message", "messageAdditional" and "ExceptionCode".
 
+import "github.com/xi0/snappymail/go-backend/internal/imapclient"
+
 // JSONSerializable is \JsonSerializable: a model that knows its own JSON shape
 // (MailSo\Mail\Message, MailSo\Imap\Folder, …). responseObject() passes the
 // result of JSONSerialize() straight through, like PHP returns jsonSerialize().
 //
-// The Message read-receipt suppression and the Folder "checkable" flag are
-// added by the steps that port those models (15–17).
+// The Message read-receipt suppression is added by step 17.
 type JSONSerializable interface {
 	JSONSerialize() any
 }
@@ -22,23 +23,34 @@ type JSONSerializable interface {
 //
 // parent is the PHP $sParent argument; it is not needed yet (only the Message
 // special case checks it) but is threaded through so the later models can use
-// it without changing call sites.
-func (d *Dispatcher) responseObject(value any, parent string) any {
+// it without changing call sites. ctx resolves the per-account settings the
+// Folder branch needs; it is nil when a response is built outside an action.
+func (d *Dispatcher) responseObject(value any, parent string, ctx *Context) any {
 	switch typed := value.(type) {
+	case *imapclient.Folder:
+		// MailSo\Imap\Folder: jsonSerialize() plus the per-account "checkable"
+		// flag of Actions\Response::responseObject().
+		result, _ := typed.JSONSerialize().(map[string]any)
+		if nil == result {
+			result = map[string]any{}
+		}
+		result["checkable"] = ctx.isCheckableFolder(typed.FullName)
+		return result
+
 	case JSONSerializable:
 		return typed.JSONSerialize()
 
 	case map[string]any:
 		result := make(map[string]any, len(typed))
 		for key, item := range typed {
-			result[key] = d.responseObject(item, "Array")
+			result[key] = d.responseObject(item, "Array", ctx)
 		}
 		return result
 
 	case []any:
 		result := make([]any, len(typed))
 		for index, item := range typed {
-			result[index] = d.responseObject(item, "Array")
+			result[index] = d.responseObject(item, "Array", ctx)
 		}
 		return result
 
@@ -48,12 +60,12 @@ func (d *Dispatcher) responseObject(value any, parent string) any {
 }
 
 // defaultResponse is Actions\Response::DefaultResponse().
-func (d *Dispatcher) defaultResponse(result any, additional map[string]any) map[string]any {
+func (d *Dispatcher) defaultResponse(result any, additional map[string]any, ctx *Context) map[string]any {
 	response := map[string]any{
 		// PHP: 'Action' => $sActionName (default ''), overwritten by the
 		// dispatcher once the action name is known.
 		"Action": "",
-		"Result": d.responseObject(result, ""),
+		"Result": d.responseObject(result, "", ctx),
 	}
 
 	for key, value := range additional {
@@ -75,12 +87,12 @@ func (d *Dispatcher) defaultResponse(result any, additional map[string]any) map[
 
 // DefaultResponse is Actions\Response::DefaultResponse() for handlers.
 func (c *Context) DefaultResponse(result any, additional map[string]any) map[string]any {
-	return c.dispatcher.defaultResponse(result, additional)
+	return c.dispatcher.defaultResponse(result, additional, c)
 }
 
 // TrueResponse is Actions\Response::TrueResponse().
 func (c *Context) TrueResponse(additional map[string]any) map[string]any {
-	return c.dispatcher.defaultResponse(true, additional)
+	return c.dispatcher.defaultResponse(true, additional, c)
 }
 
 // FalseResponse is Actions\Response::FalseResponse().
@@ -89,7 +101,7 @@ func (c *Context) FalseResponse(code int, message, additionalMessage string) map
 		"code":              code,
 		"message":           message,
 		"messageAdditional": additionalMessage,
-	})
+	}, c)
 }
 
 // isFalse reports whether result is the boolean false that triggers the

@@ -86,6 +86,10 @@ type response struct {
 	args     []string // data arguments (e.g. capability tokens)
 	code     string   // optional response code atom, upper case ("CAPABILITY", "ALERT")
 	codeArgs []string // response code arguments
+	// values holds the data tokens of a respData line. values[i] is what the
+	// PHP code reads as ResponseList[i+1]: values[0] is the name ("LIST",
+	// "STATUS", …) and the rest are the arguments, lists included.
+	values []token
 }
 
 // statusError reports a status response with a failure status.
@@ -122,6 +126,12 @@ type Client struct {
 	encrypted   bool
 	loggedIn    bool
 	utf8        bool
+	// username is Settings->username of the last Login(); Hash() uses it.
+	username string
+	// current is ImapClient::$oCurrentFolderInfo: the selected mailbox.
+	current *FolderInformation
+	// allMetadataFetched caches getAllMetadata() for the request.
+	allMetadataFetched map[string]map[string]string
 }
 
 // New builds an unconnected client for settings. logger may be nil.
@@ -188,12 +198,12 @@ func (c *Client) Connect() error {
 	c.reader = bufio.NewReader(c.conn)
 
 	// Greeting: a single "* OK/PREAUTH/BYE …" line.
-	line, err := c.readLine()
+	segments, err := c.readLogicalLine()
 	if nil != err {
 		c.Close()
 		return protocolFailure(err)
 	}
-	greeting := parseLine(line)
+	greeting := parseResponseLine(segments)
 	if respStatus == greeting.kind {
 		switch greeting.status {
 		case "BYE":
@@ -322,6 +332,7 @@ func (c *Client) Login(username, password string) error {
 	}
 
 	c.loggedIn = true
+	c.username = username
 	return nil
 }
 
@@ -639,11 +650,11 @@ func (c *Client) command(name string, args ...string) ([]response, error) {
 func (c *Client) readReply(tag string) ([]response, error) {
 	replies := make([]response, 0, 4)
 	for {
-		line, err := c.readLine()
+		segments, err := c.readLogicalLine()
 		if nil != err {
 			return replies, err
 		}
-		reply := parseLine(line)
+		reply := parseResponseLine(segments)
 		replies = append(replies, reply)
 		if "+" == reply.tag || tag == reply.tag {
 			return replies, nil
@@ -684,59 +695,6 @@ func (c *Client) setDeadline() {
 	}
 }
 
-// parseLine parses one protocol line into a response.
-func parseLine(line string) response {
-	line = strings.TrimRight(line, "\r")
-
-	// Continuation: "+ <base64 challenge>".
-	if strings.HasPrefix(line, "+") {
-		return response{
-			tag:  "+",
-			kind: respContinuation,
-			text: strings.TrimSpace(line[1:]),
-		}
-	}
-
-	result := response{}
-	var rest string
-	switch {
-	case strings.HasPrefix(line, "* "):
-		result.tag = "*"
-		rest = line[2:]
-	case "*" == line:
-		result.tag = "*"
-		rest = ""
-	default:
-		tag, after := splitToken(line)
-		result.tag = tag
-		rest = strings.TrimLeft(after, " ")
-	}
-
-	word, after := splitToken(rest)
-	upper := strings.ToUpper(word)
-
-	if isStatusWord(upper) {
-		result.kind = respStatus
-		result.status = upper
-		result.code, result.codeArgs, result.text = parseStatusText(after)
-		return result
-	}
-
-	result.kind = respData
-	result.name = upper
-	result.args = strings.Fields(after)
-	return result
-}
-
-// splitToken splits the first whitespace delimited token off value.
-func splitToken(value string) (string, string) {
-	value = strings.TrimLeft(value, " ")
-	if index := strings.IndexByte(value, ' '); 0 <= index {
-		return value[:index], value[index+1:]
-	}
-	return value, ""
-}
-
 // isStatusWord reports whether word is one of the RFC 3501 status responses.
 func isStatusWord(word string) bool {
 	switch word {
@@ -744,23 +702,6 @@ func isStatusWord(word string) bool {
 		return true
 	}
 	return false
-}
-
-// parseStatusText extracts the optional "[CODE args]" response code and the
-// remaining human readable text of a status response.
-func parseStatusText(after string) (code string, codeArgs []string, text string) {
-	after = strings.TrimLeft(after, " ")
-	if strings.HasPrefix(after, "[") {
-		if end := strings.IndexByte(after, ']'); 0 <= end {
-			inner := strings.Fields(after[1:end])
-			if 0 < len(inner) {
-				code = strings.ToUpper(inner[0])
-				codeArgs = inner[1:]
-			}
-			return code, codeArgs, strings.TrimSpace(after[end+1:])
-		}
-	}
-	return "", nil, strings.TrimSpace(after)
 }
 
 // finalizeAuth turns the final reply of an authentication command into an error:

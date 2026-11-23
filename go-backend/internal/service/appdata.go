@@ -274,6 +274,29 @@ func (a *AppData) NewSession(w http.ResponseWriter, r *http.Request) *Session {
 	return a.session(w, r)
 }
 
+// FilesProvider returns FilesProvider() (the uploaded blobs), the same instance
+// the Raw endpoints use, or nil when the step 12 wiring is absent.
+func (a *AppData) FilesProvider() *storage.Files {
+	return a.options.Files
+}
+
+// SettingsLocal returns SettingsProvider(true), the "settings_local" document of
+// an account. It is nil when the option is not wired.
+func (a *AppData) SettingsLocal() SettingsStore {
+	if nil == a.options.LocalSettings {
+		return nil
+	}
+	store, _ := a.options.LocalSettings.(SettingsStore)
+	return store
+}
+
+// SettingsStore is Providers\Settings with both accessors, the shape the Do*
+// folder actions need.
+type SettingsStore interface {
+	Load(account storage.Account) *storage.Settings
+	Save(account storage.Account, settings *storage.Settings) error
+}
+
 // session builds the request session from the injected factory.
 func (a *AppData) session(w http.ResponseWriter, r *http.Request) *Session {
 	factory := a.options.NewSession

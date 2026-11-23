@@ -433,8 +433,10 @@ func newHandler(tree installTree, logger *logx.Logger, application *config.Appli
 
 	// The ?/Json action dispatcher of step 9, on the same session stack as the
 	// AppData endpoints, so the connection/CSRF token checks and the account
-	// resolution behave like PHP. The admin session (step 27) and the plugin
-	// manager (step 28) are still unwired.
+	// resolution behave like PHP. Step 15 adds the folder surface: the
+	// settings_local provider, the file provider and the per-request IMAP
+	// connection (initMailClientConnection). The admin session (step 27) and the
+	// plugin manager (step 28) are still unwired.
 	options := handler.Options{Version: tree.version}
 	if nil != logger {
 		// A typed-nil *logx.Logger would be a non-nil handler.Logger interface
@@ -447,6 +449,17 @@ func newHandler(tree installTree, logger *logx.Logger, application *config.Appli
 			return nil
 		}
 		return session.Authenticator
+	}
+	// Actions::Config() and Actions::SettingsProvider(true)/FilesProvider().
+	options.Config = appData.Config()
+	options.LocalSettings = appData.SettingsLocal()
+	if files := appData.FilesProvider(); nil != files {
+		options.Files = files
+	}
+	// Actions::MailClient() + initMailClientConnection().
+	newSession := appData.NewSession
+	options.Mail = func(w http.ResponseWriter, r *http.Request) handler.Mail {
+		return service.NewMail(w, r, newSession, appData.Config(), logger)
 	}
 	router.Register("Json", handler.NewDispatcher(options).Serve)
 

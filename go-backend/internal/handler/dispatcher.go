@@ -92,29 +92,48 @@ type Options struct {
 	// Registry pre-populated with handlers; nil creates an empty one and the
 	// trivial actions are registered on top.
 	Registry *Registry
+	// Config is configs/application.ini (the labs.*/imap.* switches the folder
+	// actions read).
+	Config Config
+	// LocalSettings is SettingsProvider(true): the "settings_local" document
+	// that keeps the CheckableFolder list and the system folder names.
+	LocalSettings SettingsProvider
+	// Mail builds the mail layer of a request (Actions::MailClient() plus
+	// initMailClientConnection()).
+	Mail MailFactory
+	// Files is FilesProvider() (only DoFolderAppend needs it).
+	Files FilesProvider
 }
 
 // Dispatcher is the port of \RainLoop\ServiceActions::ServiceJson().
 type Dispatcher struct {
-	version    string
-	logger     Logger
-	newSession SessionFactory
-	admin      Admin
-	plugins    Plugins
-	now        func() time.Time
-	registry   *Registry
+	version       string
+	logger        Logger
+	newSession    SessionFactory
+	admin         Admin
+	plugins       Plugins
+	now           func() time.Time
+	registry      *Registry
+	config        Config
+	localSettings SettingsProvider
+	newMail       MailFactory
+	files         FilesProvider
 }
 
 // NewDispatcher builds the dispatcher and registers the trivial actions.
 func NewDispatcher(options Options) *Dispatcher {
 	dispatcher := &Dispatcher{
-		version:    options.Version,
-		logger:     options.Logger,
-		newSession: options.Session,
-		admin:      options.Admin,
-		plugins:    options.Plugins,
-		now:        options.Now,
-		registry:   options.Registry,
+		version:       options.Version,
+		logger:        options.Logger,
+		newSession:    options.Session,
+		admin:         options.Admin,
+		plugins:       options.Plugins,
+		now:           options.Now,
+		registry:      options.Registry,
+		config:        options.Config,
+		localSettings: options.LocalSettings,
+		newMail:       options.Mail,
+		files:         options.Files,
 	}
 
 	if nil == dispatcher.now {
@@ -125,6 +144,7 @@ func NewDispatcher(options Options) *Dispatcher {
 	}
 
 	RegisterSystem(dispatcher)
+	RegisterFolders(dispatcher)
 
 	return dispatcher
 }
@@ -330,7 +350,7 @@ func (d *Dispatcher) ExceptionResponse(err error) map[string]any {
 		"message":           message,
 		"messageAdditional": additional,
 		"ExceptionCode":     exceptionCode,
-	})
+	}, nil)
 }
 
 // checkToken is the token block of ServiceJson(): the X-SM-Token header when it

@@ -5,9 +5,8 @@
 //
 // Step 9 provides the dispatch machinery and the two trivial actions
 // (DoPing, DoVersion). Later steps add one file per PHP Actions trait
-// (folders.go, messages.go, …) and register their handlers here:
-//
-//	registry.Register("Folders", doFolders)
+// (folders.go, messages.go, …); each file exposes a Register* helper
+// (RegisterFolders, …) that adds its handlers to the registry.
 //
 // The action name never carries the "Do" prefix; PHP derives the method name
 // with 'Do'.$sAction and this package derives the plugin hook names

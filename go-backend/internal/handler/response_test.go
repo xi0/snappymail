@@ -12,7 +12,7 @@ func (s serializableValue) JSONSerialize() any { return s.value }
 func TestDefaultResponseFalseAddsDefaults(t *testing.T) {
 	dispatcher := newTestDispatcher(nil, nil, nil)
 
-	response := dispatcher.defaultResponse(false, nil)
+	response := dispatcher.defaultResponse(false, nil, nil)
 
 	if "" != response["Action"] {
 		t.Errorf("Action = %v, want the empty default", response["Action"])
@@ -31,8 +31,7 @@ func TestDefaultResponseFalseAddsDefaults(t *testing.T) {
 func TestDefaultResponseTrueHasNoErrorFields(t *testing.T) {
 	dispatcher := newTestDispatcher(nil, nil, nil)
 
-	response := dispatcher.defaultResponse(true, nil)
-
+	response := dispatcher.defaultResponse(true, nil, nil)
 	if true != response["Result"] {
 		t.Errorf("Result = %v", response["Result"])
 	}
@@ -50,7 +49,7 @@ func TestDefaultResponseKeepsExplicitErrorFields(t *testing.T) {
 	response := dispatcher.defaultResponse(false, map[string]any{
 		"code":    903,
 		"message": "boom",
-	})
+	}, nil)
 
 	if 903 != codeOf(response) || "boom" != response["message"] {
 		t.Errorf("explicit fields were overwritten: %v", response)
@@ -93,9 +92,9 @@ func TestResponseObjectPassesSerializableThrough(t *testing.T) {
 		"list":  []any{serializableValue{value: "x"}},
 	}
 
-	result, ok := dispatcher.responseObject(input, "").(map[string]any)
+	result, ok := dispatcher.responseObject(input, "", nil).(map[string]any)
 	if !ok {
-		t.Fatalf("responseObject returned %T", dispatcher.responseObject(input, ""))
+		t.Fatalf("responseObject returned %T", dispatcher.responseObject(input, "", nil))
 	}
 
 	model, ok := result["model"].(map[string]any)
@@ -113,7 +112,7 @@ func TestResponseObjectKeepsScalars(t *testing.T) {
 	dispatcher := newTestDispatcher(nil, nil, nil)
 
 	for _, value := range []any{"text", true, 42.0, nil, false} {
-		if got := dispatcher.responseObject(value, ""); got != value {
+		if got := dispatcher.responseObject(value, "", nil); got != value {
 			t.Errorf("responseObject(%#v) = %#v", value, got)
 		}
 	}
