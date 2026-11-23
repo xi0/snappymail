@@ -8,7 +8,9 @@ package service
 //
 // plus the ?/Test diagnostics report of step 13b (ServiceActions::ServiceTest →
 // SnappyMail\Integrity::test()), which probes the running server through
-// internal/httpclient.
+// internal/httpclient, and the ?/ProxyExternal image proxy of step 13c
+// (ServiceActions::ServiceProxyExternal), which fetches remote images through
+// the same client for the "use_local_proxy_for_external_images" mode.
 //
 // ServiceMailto() puts the "mailto:" URL into the single-use smmailtoauth cookie
 // (Actions::AUTH_MAILTO_TOKEN_KEY), which AppData() reports once as "mailToEmail"
@@ -43,9 +45,11 @@ import (
 	"time"
 
 	"github.com/xi0/snappymail/go-backend/internal/auth"
+	"github.com/xi0/snappymail/go-backend/internal/cryptox"
 	"github.com/xi0/snappymail/go-backend/internal/httpclient"
 	"github.com/xi0/snappymail/go-backend/internal/httpx"
 	"github.com/xi0/snappymail/go-backend/internal/logx"
+	"github.com/xi0/snappymail/go-backend/internal/mime"
 	"github.com/xi0/snappymail/go-backend/internal/web"
 )
 
@@ -250,6 +254,164 @@ func cspReportFromExtension(report any) bool {
 	source, _ := details["source-file"].(string)
 
 	return "moz-extension" == source
+}
+
+// proxyExpirySeconds is the 30 day lifetime ServiceProxyExternal() gives a
+// proxied image (2592000 seconds added to time()).
+const proxyExpirySeconds = 2592000
+
+// proxySniffSize is how many leading bytes MimeType::fromStream() inspects
+// (stream_get_contents($stream, 265, 0)).
+const proxySniffSize = 265
+
+// proxyImagePrefix is the '/^image\//' test of ServiceProxyExternal().
+const proxyImagePrefix = "image/"
+
+// ProxyExternal is ServiceActions::ServiceProxyExternal(): the local proxy for
+// external images of ?/ProxyExternal/<url-safe-base64>.
+//
+// It only answers when labs.use_local_proxy_for_external_images is on and an
+// account is logged in (PHP: getAccountFromToken()); every other case, a fetch
+// that is not a 200 image response, and a transport error end in a 404, which is
+// the "StatusHeader(404)" tail of the PHP method. The 200 branch sets the cache
+// headers, streams the body and stops the request like the PHP "exit".
+func (a *AppData) ProxyExternal(w http.ResponseWriter, r *http.Request, route *web.Route) bool {
+	data := ""
+	if nil != route && 1 < len(route.Paths) {
+		data = route.Paths[1]
+	}
+
+	if a.proxyExternalAllowed(w, r, data) {
+		// Actions::verifyCacheByKey(); the ETag handling is step 33.
+		a.verifyCacheByKey(w, data)
+
+		if sURL, ok := proxyURL(data); ok {
+			// PHP sets the header before fetching, so it is present even when
+			// the fetch or the content type check fails.
+			w.Header().Set("X-Content-Location", sURL)
+
+			if a.serveProxiedImage(w, data, sURL) {
+				return true
+			}
+		}
+	}
+
+	w.WriteHeader(http.StatusNotFound)
+
+	return true
+}
+
+// proxyExternalAllowed is the "$sData && config && getAccountFromToken()" gate
+// of ServiceProxyExternal(). A nil account (a guest) maps the PHP exception on
+// getAccountFromToken() onto the same 404 the endpoint reports for a guest.
+func (a *AppData) proxyExternalAllowed(w http.ResponseWriter, r *http.Request, data string) bool {
+	if phpEmpty(data) {
+		return false
+	}
+
+	if !a.config().GetBool("labs", "use_local_proxy_for_external_images", false) {
+		return false
+	}
+
+	resolved, _ := accounts(a.session(w, r))
+
+	return nil != resolved
+}
+
+// proxyURL is the UrlSafeBase64Decode()/$sUrl check of ServiceProxyExternal():
+// the decoded target URL, or ok=false for an empty/invalid blob.
+func proxyURL(data string) (string, bool) {
+	decoded, err := cryptox.URLSafeBase64Decode(data)
+	if nil != err {
+		return "", false
+	}
+
+	url := string(decoded)
+	if "" == url {
+		return "", false
+	}
+
+	return url, true
+}
+
+// serveProxiedImage performs the GET with MaxRedirects=2, streamed to a temp
+// file (the PHP tmpfile()), and serves it when it is a 200 image response.
+//
+// On any failure it sets "X-Content-Error" (except for a transport error, which
+// leaves the header off like a null $oResponse in PHP) and reports false so the
+// caller answers 404.
+func (a *AppData) serveProxiedImage(w http.ResponseWriter, data, sURL string) bool {
+	tmp, err := os.CreateTemp("", "snappymail-proxy-*")
+	if nil != err {
+		return false
+	}
+	defer func() {
+		_ = tmp.Close()
+		_ = os.Remove(tmp.Name())
+	}()
+
+	client := httpclient.New(a.options.Version)
+	// PHP: $HTTP->max_redirects = 2;
+	client.MaxRedirects = 2
+	client.StreamBodyTo(tmp)
+
+	response, err := client.Do(http.MethodGet, sURL, nil, nil)
+	client.StreamBodyTo(nil)
+
+	if nil != err || nil == response {
+		return false
+	}
+
+	// PHP: MimeType::fromStream($tmp) ?: $oResponse->getHeader('content-type')
+	contentType := proxyContentType(tmp)
+	if "" == contentType {
+		contentType = response.GetHeader("content-type")
+	}
+
+	// PHP: if (200 === status && str_starts_with($contentType, 'image/'))
+	if http.StatusOK != response.Status || !strings.HasPrefix(contentType, proxyImagePrefix) {
+		w.Header().Set("X-Content-Error", fmt.Sprintf("%d %s", response.Status, contentType))
+		return false
+	}
+
+	// Actions::cacheByKey(); the ETag handling is step 33.
+	a.cacheByKey(data)
+
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", "public")
+	w.Header().Set("Expires", proxyExpires())
+	w.Header().Set("X-Content-Redirect-Location", response.FinalURI)
+	w.WriteHeader(http.StatusOK)
+
+	if _, err := tmp.Seek(0, io.SeekStart); nil == err {
+		_, _ = io.Copy(w, tmp)
+	}
+
+	return true
+}
+
+// proxyContentType is MimeType::fromStream() on the temp file: the leading
+// proxySniffSize bytes decide the type, using the detectDeeper() fallback with no
+// name (the PHP fromStream() passes no name).
+func proxyContentType(tmp *os.File) string {
+	header := make([]byte, proxySniffSize)
+
+	read, err := tmp.ReadAt(header, 0)
+	if nil != err && io.EOF != err {
+		return ""
+	}
+	if 0 >= read {
+		return ""
+	}
+
+	return mime.FromContent(header[:read], "")
+}
+
+// proxyExpires is the "Expires" header of a proxied image:
+// gmdate('D, j M Y H:i:s', 2592000 + time()) . ' UTC'.
+func proxyExpires() string {
+	expires := time.Now().Add(proxyExpirySeconds * time.Second).UTC()
+	return expires.Format("Mon, 2 Jan 2006 15:04:05") + " UTC"
 }
 
 // integrityAssets are the files Integrity::test() probes: the bundles the

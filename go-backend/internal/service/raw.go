@@ -535,6 +535,12 @@ func (a *AppData) decodeRawKey(rawKey string, resolved *account.Account) map[str
 // of step 33, so it is a no-op here.
 func (a *AppData) verifyCacheByKey(_ http.ResponseWriter, _ string) {}
 
+// cacheByKey is Actions::cacheByKey(). Like verifyCacheByKey(), the ETag/Expires
+// handling is part of step 33, so it stays a no-op stub here: the callers set
+// their response cache headers themselves (ServiceProxyExternal) or rely on the
+// pipeline defaults (Lang/Css/Plugins).
+func (a *AppData) cacheByKey(_ string) {}
+
 // thumbnailPNG is Actions\Raw::loadImage() + Image::cropThumbnailImage(): a
 // square PNG thumbnail of box pixels, or ok=false when the image cannot be
 // decoded.

@@ -3,8 +3,9 @@
 //
 // Step 2 needs the Ping endpoint so the router can be verified end to end,
 // step 10 adds AppData/AdminAppData, step 11 adds Lang/Css/Plugins, step 12 the
-// uploads and Raw streaming, step 13a Mailto/Sso/CspReport and step 13b the
-// ?/Test diagnostics report (misc.go, on top of internal/httpclient).
+// uploads and Raw streaming, step 13a Mailto/Sso/CspReport, step 13b the ?/Test
+// diagnostics report and step 13c the ?/ProxyExternal image proxy (both in
+// misc.go, on top of internal/httpclient).
 package service
 
 import (
@@ -50,5 +51,7 @@ func Register(router *web.Router, appData *AppData) {
 		router.Register("CspReport", appData.CspReport)
 		// Step 13b: the Integrity::test() diagnostics report.
 		router.Register("Test", appData.Test)
+		// Step 13c: the external image proxy.
+		router.Register("ProxyExternal", appData.ProxyExternal)
 	}
 }
