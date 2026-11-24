@@ -1,8 +1,9 @@
 // Package mail ports MailSo\Mail\MailClient: the high level mail operations on
 // top of an authenticated internal/imapclient connection.
 //
-// Step 15 provides the folder surface, step 16 the message list and step 17 the
-// single message view (Message). A *Client wraps the IMAP client of the request,
+// Step 15 provides the folder surface, step 16 the message list, step 17 the
+// single message view (Message) and step 18 the flag mutation (flags.go). A
+// *Client wraps the IMAP client of the request,
 // so the connection is reused for every command of that request, exactly like
 // Actions::MailClient() caches one MailClient.
 package mail

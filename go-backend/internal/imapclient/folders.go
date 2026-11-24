@@ -399,9 +399,25 @@ func (c *Client) FolderClear(name string) error {
 	return c.FolderExpunge()
 }
 
-// FolderExpunge is Folders::FolderExpunge().
+// FolderExpunge is Folders::FolderExpunge(): permanently remove every message
+// that carries \Deleted from the selected mailbox.
 func (c *Client) FolderExpunge() error {
-	replies, err := c.sendParams("EXPUNGE", nil)
+	return c.FolderExpungeRange(nil)
+}
+
+// FolderExpungeRange is Folders::FolderExpunge($oUidRange): an RFC 4315
+// "UID EXPUNGE <range>" when a UID range is given and the server supports
+// UIDPLUS, else a plain EXPUNGE.
+func (c *Client) FolderExpungeRange(uidRange *SequenceSet) error {
+	command := "EXPUNGE"
+	var args []param
+
+	if nil != uidRange && 0 < uidRange.Count() && uidRange.UID && c.HasCapability("UIDPLUS") {
+		command = "UID EXPUNGE"
+		args = append(args, param{text: uidRange.String()})
+	}
+
+	replies, err := c.sendParams(command, args)
 	if nil != err {
 		return protocolFailure(err)
 	}

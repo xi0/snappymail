@@ -157,6 +157,16 @@ func (s *folderServer) handle(connection net.Conn) {
 
 		tag, rest := splitFirst(line, " ")
 		command, _ := splitFirst(rest, " ")
+		command = strings.ToUpper(command)
+
+		// Step 18 commands may be prefixed with "UID "; the recorded line keeps
+		// the prefix, the dispatch does not.
+		if "UID" == command {
+			rest = strings.TrimLeft(rest[len(command):], " ")
+			command, _ = splitFirst(rest, " ")
+			command = strings.ToUpper(command)
+		}
+
 		quoted := quotedArgs(rest)
 
 		switch strings.ToUpper(command) {
@@ -265,6 +275,11 @@ func (s *folderServer) handle(connection net.Conn) {
 
 		case "SETACL", "DELETEACL":
 			write(tag + " OK " + strings.ToUpper(command) + " completed")
+
+		// Step 18: the state mutations. The answer is a plain OK; the tests
+		// assert on the command log instead.
+		case "STORE", "EXPUNGE", "COPY", "MOVE":
+			write(tag + " OK " + command + " completed")
 
 		case "LOGOUT":
 			write("* BYE logging out")

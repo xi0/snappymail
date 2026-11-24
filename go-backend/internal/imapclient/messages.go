@@ -18,6 +18,33 @@ import (
 	"github.com/xi0/snappymail/go-backend/internal/mime"
 )
 
+// The message flags of MailSo\Imap\Enumerations\MessageFlag (the subset the
+// flag/delete/move actions use).
+const (
+	// FlagSeen is MessageFlag::SEEN.
+	FlagSeen = `\Seen`
+	// FlagDeleted is MessageFlag::DELETED.
+	FlagDeleted = `\Deleted`
+	// FlagFlagged is MessageFlag::FLAGGED.
+	FlagFlagged = `\Flagged`
+	// FlagAnswered is MessageFlag::ANSWERED.
+	FlagAnswered = `\Answered`
+	// FlagDraft is MessageFlag::DRAFT.
+	FlagDraft = `\Draft`
+	// FlagMDNSent is MessageFlag::MDNSENT (RFC 3503).
+	FlagMDNSent = `$MDNSent`
+	// FlagImportant is MessageFlag::IMPORTANT (RFC 8457).
+	FlagImportant = `$Important`
+	// FlagForwarded is MessageFlag::FORWARDED (RFC 5788).
+	FlagForwarded = `$Forwarded`
+	// FlagJunk is MessageFlag::JUNK (RFC 9051).
+	FlagJunk = `$Junk`
+	// FlagNotJunk is MessageFlag::NOTJUNK.
+	FlagNotJunk = `$NotJunk`
+	// FlagPhishing is MessageFlag::PHISHING.
+	FlagPhishing = `$Phishing`
+)
+
 // The FETCH item names of MailSo\Imap\Enumerations\FetchType (the subset the
 // list/thread steps use).
 const (
@@ -581,4 +608,98 @@ func reverseInts(values []int) {
 	for left, right := 0, len(values)-1; left < right; left, right = left+1, right-1 {
 		values[left], values[right] = values[right], values[left]
 	}
+}
+
+// errInvalidRange is the ValueError the mutating commands throw for an empty
+// folder or sequence set.
+var errInvalidRange = errors.New("imapclient: empty folder or sequence set")
+
+// MessageCopy is Commands\Messages::MessageCopy(): COPY the range into another
+// mailbox.
+//
+// PHP returns the ResponseCollection (which may carry the RFC 4315 COPYUID
+// response code); the only caller (DoMessageCopy) ignores it and reports the
+// folder hash, so only the status is surfaced here.
+func (c *Client) MessageCopy(fromFolder, toFolder string, rangeSet *SequenceSet) error {
+	if "" == fromFolder || "" == toFolder || nil == rangeSet || 0 == rangeSet.Count() {
+		return protocolFailure(errInvalidRange)
+	}
+
+	if _, err := c.FolderSelect(fromFolder, false); nil != err {
+		return err
+	}
+
+	command := "COPY"
+	if rangeSet.UID {
+		command = "UID COPY"
+	}
+
+	replies, err := c.sendParams(command, []param{
+		{text: rangeSet.String()},
+		{text: c.EscapeFolderName(toFolder)},
+	})
+	if nil != err {
+		return protocolFailure(err)
+	}
+	_, err = expectOK(replies)
+	return err
+}
+
+// MessageMove is Commands\Messages::MessageMove(): MOVE when the server
+// advertises it, else COPY + DELETE (RFC 6851).
+func (c *Client) MessageMove(fromFolder, toFolder string, rangeSet *SequenceSet) error {
+	if "" == fromFolder || "" == toFolder || nil == rangeSet || 0 == rangeSet.Count() {
+		return protocolFailure(errInvalidRange)
+	}
+
+	if c.HasCapability("MOVE") {
+		if _, err := c.FolderSelect(fromFolder, false); nil != err {
+			return err
+		}
+
+		command := "MOVE"
+		if rangeSet.UID {
+			command = "UID MOVE"
+		}
+
+		replies, err := c.sendParams(command, []param{
+			{text: rangeSet.String()},
+			{text: c.EscapeFolderName(toFolder)},
+		})
+		if nil != err {
+			return protocolFailure(err)
+		}
+		_, err = expectOK(replies)
+		return err
+	}
+
+	if err := c.MessageCopy(fromFolder, toFolder, rangeSet); nil != err {
+		return err
+	}
+	return c.MessageDelete(fromFolder, rangeSet, true)
+}
+
+// MessageDelete is Commands\Messages::MessageDelete(): mark the range \Deleted
+// and expunge it.
+//
+// With expungeAll and imap.use_expunge_all_on_delete the whole mailbox is
+// expunged, otherwise only the deleted UIDs (RFC 4315 UID EXPUNGE, when the
+// server supports UIDPLUS) are removed.
+func (c *Client) MessageDelete(folder string, rangeSet *SequenceSet, expungeAll bool) error {
+	if "" == folder || nil == rangeSet || 0 == rangeSet.Count() {
+		return protocolFailure(errInvalidRange)
+	}
+
+	if _, err := c.FolderSelect(folder, false); nil != err {
+		return err
+	}
+
+	if err := c.MessageStoreFlag(rangeSet.String(), rangeSet.UID, []string{FlagDeleted}, StoreAddFlagsSilent); nil != err {
+		return err
+	}
+
+	if expungeAll && nil != c.Settings && c.Settings.ExpungeAllOnDelete {
+		return c.FolderExpunge()
+	}
+	return c.FolderExpungeRange(rangeSet)
 }

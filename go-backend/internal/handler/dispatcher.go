@@ -167,6 +167,7 @@ func NewDispatcher(options Options) *Dispatcher {
 	RegisterSystem(dispatcher)
 	RegisterFolders(dispatcher)
 	RegisterMessages(dispatcher)
+	RegisterMessageActions(dispatcher)
 
 	return dispatcher
 }
