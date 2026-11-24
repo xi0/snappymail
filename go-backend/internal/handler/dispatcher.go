@@ -81,9 +81,27 @@ type Cacher interface {
 	GetDefault(key, defaultValue string) string
 }
 
+// CacherSetter is the optional Set() extension DoSendReadReceiptMessage() needs
+// when the $MDNSent flag cannot be stored. A Cacher that does not implement it
+// simply skips the cache fallback.
+type CacherSetter interface {
+	Set(key, value string) error
+}
+
 // CacherFactory builds Actions::Cacher($oAccount): the cache client of one
 // account (or of the "_default_" prefix when resolved is nil).
 type CacherFactory func(resolved *account.Account) Cacher
+
+// Sender is the smtpclient.Sender surface DoSendMessage() needs.
+type Sender interface {
+	// Send delivers data to recipients (plus the optional hidden Bcc copies)
+	// through the SMTP server of the account.
+	Send(target *account.Account, from string, recipients, hidden []string, data []byte, dsn, requireTLS bool) error
+}
+
+// SenderFactory builds the SMTP sender of a dispatcher. The plugin manager is
+// handed in so the sender can run the smtp.* connect/login hooks.
+type SenderFactory func(plugins Plugins) Sender
 
 // Options build a Dispatcher. Everything but Version is optional; a nil
 // dependency keeps the corresponding behaviour unported (see the step notes).
@@ -120,6 +138,9 @@ type Options struct {
 	Mail MailFactory
 	// Files is FilesProvider() (only DoFolderAppend needs it).
 	Files FilesProvider
+	// SMTP sends composed messages (DoSendMessage/DoSendReadReceiptMessage).
+	// A nil factory makes sending report CantSendMessage.
+	SMTP SenderFactory
 }
 
 // Dispatcher is the port of \RainLoop\ServiceActions::ServiceJson().
@@ -137,6 +158,7 @@ type Dispatcher struct {
 	localSettings SettingsProvider
 	newMail       MailFactory
 	files         FilesProvider
+	newSender     SenderFactory
 }
 
 // NewDispatcher builds the dispatcher and registers the trivial actions.
@@ -155,6 +177,7 @@ func NewDispatcher(options Options) *Dispatcher {
 		localSettings: options.LocalSettings,
 		newMail:       options.Mail,
 		files:         options.Files,
+		newSender:     options.SMTP,
 	}
 
 	if nil == dispatcher.now {
@@ -168,6 +191,7 @@ func NewDispatcher(options Options) *Dispatcher {
 	RegisterFolders(dispatcher)
 	RegisterMessages(dispatcher)
 	RegisterMessageActions(dispatcher)
+	RegisterMessageSend(dispatcher)
 
 	return dispatcher
 }

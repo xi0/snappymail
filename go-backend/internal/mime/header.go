@@ -179,6 +179,27 @@ func (c *ParameterCollection) Parse(raw string) {
 	}
 }
 
+// ToString is ParameterCollection::ToString(): `name="value"` pairs joined by
+// "; ". Only name/filename are RFC 2047 encoded when convert is set.
+func (c *ParameterCollection) ToString(convert bool) string {
+	if nil == c {
+		return ""
+	}
+	items := make([]string, 0, len(c.order))
+	for _, key := range c.order {
+		parameter := c.items[key]
+		if nil == parameter || "" == parameter.name {
+			continue
+		}
+		value := parameter.value
+		if convert && ("NAME" == strings.ToUpper(parameter.name) || "FILENAME" == strings.ToUpper(parameter.name)) {
+			value = EncodeHeaderValue(value)
+		}
+		items = append(items, parameter.name+`="`+value+`"`)
+	}
+	return strings.Join(items, "; ")
+}
+
 // JSONSerialize is Collection::jsonSerialize() for the parameter collection.
 func (c *ParameterCollection) JSONSerialize() any {
 	items := map[string]any{}

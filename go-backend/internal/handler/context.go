@@ -30,6 +30,7 @@ type SettingsProvider interface {
 // DoFolderAppend upload of step 15). *storage.Files satisfies it.
 type FilesProvider interface {
 	MoveUploadedFile(account storage.Account, key, source string) error
+	FileExists(account storage.Account, key string) bool
 	FileSize(account storage.Account, key string) (int64, bool)
 	Open(account storage.Account, key string) (*os.File, error)
 	Clear(account storage.Account, key string) bool

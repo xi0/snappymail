@@ -56,6 +56,7 @@ import (
 	"github.com/xi0/snappymail/go-backend/internal/logx"
 	"github.com/xi0/snappymail/go-backend/internal/pages"
 	"github.com/xi0/snappymail/go-backend/internal/service"
+	"github.com/xi0/snappymail/go-backend/internal/smtpclient"
 	"github.com/xi0/snappymail/go-backend/internal/storage"
 	"github.com/xi0/snappymail/go-backend/internal/web"
 )
@@ -471,6 +472,16 @@ func newHandler(tree installTree, logger *logx.Logger, application *config.Appli
 	newSession := appData.NewSession
 	options.Mail = func(w http.ResponseWriter, r *http.Request) handler.Mail {
 		return service.NewMail(w, r, newSession, appData.Config(), logger)
+	}
+	// Actions\Messages::smtpSendMessage() + Account::SmtpConnectAndLogin().
+	// labs.smtp_show_server_errors is Smtp\Settings::$viewErrors.
+	options.SMTP = func(plugins handler.Plugins) handler.Sender {
+		var hooks account.Hooks
+		if nil != plugins {
+			hooks = plugins
+		}
+		return smtpclient.NewSender(hooks, logger,
+			appData.Config().GetBool("labs", "smtp_show_server_errors", false))
 	}
 	router.Register("Json", handler.NewDispatcher(options).Serve)
 

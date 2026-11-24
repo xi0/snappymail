@@ -1019,8 +1019,9 @@ func (c *Client) FetchFlags(sequenceSet string, uid bool) ([]FlagRecord, error) 
 }
 
 // MessageAppendStream is Commands\Messages::MessageAppendStream(): APPEND a
-// message and return the [APPENDUID] value when the server reports one.
-func (c *Client) MessageAppendStream(folder string, source io.Reader, size int64) (int, bool, error) {
+// message with optional flags and return the [APPENDUID] value when the server
+// reports one.
+func (c *Client) MessageAppendStream(folder string, source io.Reader, size int64, flags ...string) (int, bool, error) {
 	if "" == folder {
 		return 0, false, protocolFailure(ErrEmptyFolderName)
 	}
@@ -1028,8 +1029,18 @@ func (c *Client) MessageAppendStream(folder string, source io.Reader, size int64
 		return 0, false, protocolFailure(errors.New("imapclient: empty message stream"))
 	}
 
+	line := c.EscapeFolderName(folder)
+	if 0 < len(flags) {
+		items := make([]param, 0, len(flags))
+		for _, flag := range flags {
+			items = append(items, param{text: quoteString(UTF8ToMUTF7(flag))})
+		}
+		line += paramLine([]param{{group: items}})
+	}
+	line += " {" + strconv.FormatInt(size, 10) + "}"
+
 	tag := c.nextTag()
-	line := tag + " APPEND " + c.EscapeFolderName(folder) + " {" + strconv.FormatInt(size, 10) + "}"
+	line = tag + " APPEND " + line
 	if err := c.writeLine(line); nil != err {
 		return 0, false, protocolFailure(err)
 	}

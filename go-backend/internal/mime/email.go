@@ -52,6 +52,30 @@ func (e *Email) GetDomain() string {
 	return ""
 }
 
+// ToString is Email::ToString(): the address, optionally with its display name
+// and RFC 2047 encoded display name (the header writer of Step 19).
+func (e *Email) ToString(convertSpecialsName, utf8 bool) string {
+	if nil == e || "" == e.email {
+		return ""
+	}
+
+	// Email::GetEmail($bUtf8) converts the domain to unicode. The builder only
+	// renders the ASCII form (Header::__toString() calls ToString(true)), so the
+	// conversion is not needed here.
+	_ = utf8
+	result := e.email
+
+	displayName := e.displayName
+	if "" != displayName {
+		displayName = strings.ReplaceAll(displayName, `"`, `\"`)
+		if convertSpecialsName {
+			displayName = EncodeHeaderValue(displayName)
+		}
+		result = `"` + displayName + `" <` + result + `>`
+	}
+	return result
+}
+
 // SetDkimStatus is Email::SetDkimStatus().
 func (e *Email) SetDkimStatus(status string) {
 	if nil == e {
@@ -204,6 +228,38 @@ func (c *EmailCollection) Append(email *Email) {
 		return
 	}
 	c.items = append(c.items, email)
+}
+
+// Unique is EmailCollection::Unique(): de-duplicate by e-mail address, keeping
+// the first occurrence order.
+func (c *EmailCollection) Unique() *EmailCollection {
+	result := &EmailCollection{}
+	if nil == c {
+		return result
+	}
+
+	seen := make(map[string]struct{}, len(c.items))
+	for _, email := range c.items {
+		address := email.GetEmail()
+		if _, ok := seen[address]; ok {
+			continue
+		}
+		seen[address] = struct{}{}
+		result.items = append(result.items, email)
+	}
+	return result
+}
+
+// ToString is EmailCollection::ToString().
+func (c *EmailCollection) ToString(convertSpecialsName, utf8 bool) string {
+	if nil == c {
+		return ""
+	}
+	items := make([]string, 0, len(c.items))
+	for _, email := range c.items {
+		items = append(items, email.ToString(convertSpecialsName, utf8))
+	}
+	return strings.Join(items, ", ")
 }
 
 // parseEmailAddresses is EmailCollection::parseEmailAddresses().
