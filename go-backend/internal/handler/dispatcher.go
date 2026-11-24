@@ -130,9 +130,22 @@ type Options struct {
 	// Config is configs/application.ini (the labs.*/imap.* switches the folder
 	// actions read).
 	Config Config
+	// Settings is SettingsProvider(): the "settings" document (step 21).
+	Settings SettingsProvider
 	// LocalSettings is SettingsProvider(true): the "settings_local" document
 	// that keeps the CheckableFolder list and the system folder names.
 	LocalSettings SettingsProvider
+	// Storage is Actions::StorageProvider(): the NOBODY "Cache/Timers" entries
+	// of DoAppDelayStart and the per-account CONFIG entries of
+	// DoClearUserBackground (step 21).
+	Storage StorageProvider
+	// Language is Actions\Localization::ValidateLanguage() (DoSettingsUpdate,
+	// step 21). A nil value keeps the client supplied code as-is.
+	Language func(language string) string
+	// Theme is Actions\Themes::ValidateTheme() (DoSettingsUpdate, step 21).
+	Theme func(theme string) string
+	// Suggestions is Providers\Suggestions() (DoSuggestions, step 21).
+	Suggestions Suggestions
 	// Mail builds the mail layer of a request (Actions::MailClient() plus
 	// initMailClientConnection()).
 	Mail MailFactory
@@ -155,7 +168,12 @@ type Dispatcher struct {
 	now           func() time.Time
 	registry      *Registry
 	config        Config
+	settings      SettingsProvider
 	localSettings SettingsProvider
+	storage       StorageProvider
+	language      func(language string) string
+	theme         func(theme string) string
+	suggestions   Suggestions
 	newMail       MailFactory
 	files         FilesProvider
 	newSender     SenderFactory
@@ -174,7 +192,12 @@ func NewDispatcher(options Options) *Dispatcher {
 		now:           options.Now,
 		registry:      options.Registry,
 		config:        options.Config,
+		settings:      options.Settings,
 		localSettings: options.LocalSettings,
+		storage:       options.Storage,
+		language:      options.Language,
+		theme:         options.Theme,
+		suggestions:   options.Suggestions,
 		newMail:       options.Mail,
 		files:         options.Files,
 		newSender:     options.SMTP,
@@ -193,6 +216,7 @@ func NewDispatcher(options Options) *Dispatcher {
 	RegisterMessageActions(dispatcher)
 	RegisterMessageSend(dispatcher)
 	RegisterAttachments(dispatcher)
+	RegisterUser(dispatcher)
 
 	return dispatcher
 }

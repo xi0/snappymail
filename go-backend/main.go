@@ -58,6 +58,7 @@ import (
 	"github.com/xi0/snappymail/go-backend/internal/service"
 	"github.com/xi0/snappymail/go-backend/internal/smtpclient"
 	"github.com/xi0/snappymail/go-backend/internal/storage"
+	"github.com/xi0/snappymail/go-backend/internal/suggestions"
 	"github.com/xi0/snappymail/go-backend/internal/web"
 )
 
@@ -455,6 +456,18 @@ func newHandler(tree installTree, logger *logx.Logger, application *config.Appli
 	// Actions::Config() and Actions::SettingsProvider(true)/FilesProvider().
 	options.Config = appData.Config()
 	options.LocalSettings = appData.SettingsLocal()
+	// Actions::SettingsProvider()/StorageProvider() and the DoSettingsUpdate
+	// language/theme validators (step 21).
+	options.Settings = appData.Settings()
+	if store := appData.StorageProvider(); nil != store {
+		options.Storage = store
+	}
+	options.Language = func(language string) string { return appData.ValidateLanguage(language, false) }
+	options.Theme = appData.ValidateTheme
+	// Providers\Suggestions(): the sqlite address book is Step 22, so until it
+	// is wired the provider reports an empty list, like an installation with
+	// contacts disabled.
+	options.Suggestions = suggestions.New(nil)
 	if files := appData.FilesProvider(); nil != files {
 		options.Files = files
 	}

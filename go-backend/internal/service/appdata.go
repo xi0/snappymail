@@ -290,6 +290,22 @@ func (a *AppData) SettingsLocal() SettingsStore {
 	return store
 }
 
+// Settings returns SettingsProvider(), the "settings" document of an account
+// (step 21). It is nil when the option is not wired.
+func (a *AppData) Settings() SettingsStore {
+	if nil == a.options.Settings {
+		return nil
+	}
+	store, _ := a.options.Settings.(SettingsStore)
+	return store
+}
+
+// StorageProvider returns StorageProvider(): the per-account CONFIG entries and
+// the NOBODY "Cache/Timers" bookkeeping of step 21, or nil when not wired.
+func (a *AppData) StorageProvider() *storage.Provider {
+	return a.options.Storage
+}
+
 // SettingsStore is Providers\Settings with both accessors, the shape the Do*
 // folder actions need.
 type SettingsStore interface {

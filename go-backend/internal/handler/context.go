@@ -40,6 +40,17 @@ type FilesProvider interface {
 	Clear(account storage.Account, key string) bool
 }
 
+// StorageProvider is the part of Providers\Storage Actions\StorageProvider()
+// exposes to the handlers: the NOBODY "Cache/Timers" bookkeeping and the
+// per-account CONFIG entries of DoAppDelayStart/DoClearUserBackground.
+// *storage.Provider satisfies it.
+type StorageProvider interface {
+	Get(account any, storageType storage.StorageType, key string) (string, bool)
+	Put(account any, storageType storage.StorageType, key, value string) error
+	Clear(account any, storageType storage.StorageType, key string) bool
+	GC()
+}
+
 // Mail is the per-request mail layer: Actions::MailClient() together with
 // initMailClientConnection().
 type Mail interface {
@@ -178,6 +189,37 @@ func (c *Context) SaveLocalSettings(account *account.Account, settings *storage.
 		return nil
 	}
 	return c.dispatcher.localSettings.Save(account, settings)
+}
+
+// MainSettings is Actions::SettingsProvider()->Load($account) (the "settings"
+// document). A nil provider or account yields an empty document.
+func (c *Context) MainSettings(account *account.Account) *storage.Settings {
+	if nil == c || nil == c.dispatcher || nil == c.dispatcher.settings || nil == account {
+		return storage.NewSettings()
+	}
+	settings := c.dispatcher.settings.Load(account)
+	if nil == settings {
+		return storage.NewSettings()
+	}
+	return settings
+}
+
+// SaveMainSettings is Actions::SettingsProvider()->Save($account, $settings).
+func (c *Context) SaveMainSettings(account *account.Account, settings *storage.Settings) error {
+	if nil == c || nil == c.dispatcher || nil == c.dispatcher.settings {
+		return nil
+	}
+	return c.dispatcher.settings.Save(account, settings)
+}
+
+// Storage is Actions::StorageProvider(): the "storage" provider of the request.
+// A nil provider makes the storage dependent actions report a no-op success,
+// like the PHP provider does when the driver is missing.
+func (c *Context) Storage() StorageProvider {
+	if nil == c || nil == c.dispatcher {
+		return nil
+	}
+	return c.dispatcher.storage
 }
 
 // accountHash is $account->Hash() of the current account, the value the RawKeys
