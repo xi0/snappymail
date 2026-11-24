@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"io"
 	"net/http"
 	"os"
 
@@ -26,10 +27,13 @@ type SettingsProvider interface {
 	Save(account storage.Account, settings *storage.Settings) error
 }
 
-// FilesProvider is the part of Providers\Files the handlers use (the
-// DoFolderAppend upload of step 15). *storage.Files satisfies it.
+// FilesProvider is the part of Providers\Files the handlers use: the
+// DoFolderAppend upload of step 15 and the attachment blobs of step 20 (the
+// fetched message parts and the produced zip archives). *storage.Files
+// satisfies it.
 type FilesProvider interface {
 	MoveUploadedFile(account storage.Account, key, source string) error
+	PutFile(account storage.Account, key string, source io.Reader) error
 	FileExists(account storage.Account, key string) bool
 	FileSize(account storage.Account, key string) (int64, bool)
 	Open(account storage.Account, key string) (*os.File, error)

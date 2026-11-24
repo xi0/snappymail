@@ -192,6 +192,7 @@ func NewDispatcher(options Options) *Dispatcher {
 	RegisterMessages(dispatcher)
 	RegisterMessageActions(dispatcher)
 	RegisterMessageSend(dispatcher)
+	RegisterAttachments(dispatcher)
 
 	return dispatcher
 }
