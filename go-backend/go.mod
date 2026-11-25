@@ -7,6 +7,7 @@ require (
 	golang.org/x/crypto v0.59.0
 	golang.org/x/image v0.48.0
 	golang.org/x/net v0.63.0
+	modernc.org/sqlite v1.62.0
 )
 
 require (
@@ -37,5 +38,4 @@ require (
 	modernc.org/libc v1.80.1 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
-	modernc.org/sqlite v1.62.0 // indirect
 )

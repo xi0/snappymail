@@ -94,9 +94,10 @@ func (a *AppData) Raw(w http.ResponseWriter, r *http.Request, route *web.Route) 
 			ok = a.rawViewAsPlain(w, r, rawKey)
 		case "UserBackground":
 			ok = a.rawUserBackground(w, r, rawKey)
-		case "ContactsVcf", "ContactsCsv":
-			// The address book export lands with step 22.
-			ok = false
+		case "ContactsVcf":
+			ok = a.rawContacts(w, r, "vcf")
+		case "ContactsCsv":
+			ok = a.rawContacts(w, r, "csv")
 		}
 
 		if !ok {
@@ -234,6 +235,45 @@ func (a *AppData) rawViewAsPlain(w http.ResponseWriter, r *http.Request, rawKey 
 				_, _ = io.Copy(w, reader)
 			}
 		}, folder, uid, mimeIndex)
+}
+
+// contactExporter is the Actions\Contacts raw export surface (?/Raw/ContactsVcf
+// and ?/Raw/ContactsCsv). *contacts.Provider satisfies it.
+type contactExporter interface {
+	Export(account *account.Account, kind string) ([]byte, bool)
+}
+
+// rawContacts is Actions\Contacts::RawContactsVcf()/RawContactsCsv(): the
+// serialized address book as a download.
+func (a *AppData) rawContacts(w http.ResponseWriter, r *http.Request, kind string) bool {
+	resolved, _ := accounts(a.session(w, r))
+	if nil == resolved || nil == a.options.AddressBook || !a.options.AddressBook.IsActive(resolved) {
+		return false
+	}
+
+	exporter, ok := a.options.AddressBook.(contactExporter)
+	if !ok {
+		return false
+	}
+
+	data, ok := exporter.Export(resolved, kind)
+	if !ok {
+		return false
+	}
+
+	if "csv" == kind {
+		w.Header().Set("Content-Type", "text/csv; charset=UTF-8")
+		httpx.SetContentDisposition(w, httpx.Disposition{Type: "attachment", Filename: "contacts.csv"})
+	} else {
+		w.Header().Set("Content-Type", "text/x-vcard; charset=UTF-8")
+		httpx.SetContentDisposition(w, httpx.Disposition{Type: "attachment", Filename: "contacts.vcf"})
+	}
+	w.Header().Set("Accept-Ranges", "none")
+	w.Header().Set("Content-Transfer-Encoding", "binary")
+	httpx.NoStore(w)
+
+	_, _ = w.Write(data)
+	return true
 }
 
 // rawUserBackground is Actions\Raw::RawUserBackground(): the stored account

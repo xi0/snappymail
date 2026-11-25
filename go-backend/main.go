@@ -48,6 +48,7 @@ import (
 	"github.com/xi0/snappymail/go-backend/internal/account"
 	"github.com/xi0/snappymail/go-backend/internal/auth"
 	"github.com/xi0/snappymail/go-backend/internal/config"
+	"github.com/xi0/snappymail/go-backend/internal/contacts"
 	"github.com/xi0/snappymail/go-backend/internal/cryptox"
 	"github.com/xi0/snappymail/go-backend/internal/domain"
 	"github.com/xi0/snappymail/go-backend/internal/handler"
@@ -403,8 +404,9 @@ func newHandler(tree installTree, logger *logx.Logger, application *config.Appli
 	}
 
 	// The AppData/AdminAppData plus Lang/Css/Plugins endpoints and the index
-	// page share one cookie/account/cache stack.
-	appData := newAppData(tree, logger, application, paths)
+	// page share one cookie/account/cache stack. The contacts provider (step 22)
+	// is built alongside the storage/settings providers it depends on.
+	appData, contactsProvider := newAppData(tree, logger, application, paths)
 
 	// The index page (internal/pages): the renderer reads the webmail state
 	// through AppData.IndexActions and re-emits the CSP with the script nonce.
@@ -464,13 +466,14 @@ func newHandler(tree installTree, logger *logx.Logger, application *config.Appli
 	}
 	options.Language = func(language string) string { return appData.ValidateLanguage(language, false) }
 	options.Theme = appData.ValidateTheme
-	// Providers\Suggestions(): the sqlite address book is Step 22, so until it
-	// is wired the provider reports an empty list, like an installation with
-	// contacts disabled.
-	options.Suggestions = suggestions.New(nil)
+	// Providers\Suggestions(): the sqlite address book of step 22, so the
+	// recipient suggestions hit the same contacts the ?/Contacts action lists.
+	options.Suggestions = suggestions.New(contactsProvider)
 	if files := appData.FilesProvider(); nil != files {
 		options.Files = files
 	}
+	// Actions\Contacts::AddressBookProvider() (step 22).
+	options.Contacts = contactsProvider
 	// Actions::Cacher($oAccount): the per-account cache of the read-receipt
 	// marks (DoMessage's responseObject()). A typed-nil *storage.Cache would be
 	// a non-nil interface, so it is only wrapped when usable.
@@ -512,7 +515,7 @@ func newAppData(
 	logger *logx.Logger,
 	application *config.Application,
 	paths httpx.WebPaths,
-) *service.AppData {
+) (*service.AppData, *contacts.Provider) {
 	cfg := application
 	if nil == cfg {
 		cfg = config.NewApplication(
@@ -580,7 +583,22 @@ func newAppData(
 		}
 	}
 
-	return service.NewAppData(service.Options{
+	// Providers\AddressBook (step 22): the sqlite contacts of the installation.
+	// contacts.enable gates the whole address book; sqlite_global selects the
+	// private data file, else the account ROOT copy (PdoAddressBook).
+	contactsProvider := contacts.New(contacts.Options{
+		Version:     tree.version,
+		Enabled:     cfg.GetBool("contacts", "enable", false),
+		PrivateData: tree.privateData,
+		Global: cfg.GetBool("contacts", "sqlite_global",
+			isFile(filepath.Join(tree.privateData, "AddressBook.sqlite"))),
+		RootPath: func(resolved *account.Account) string {
+			return storageProvider.GenerateFilePath(resolved, storage.TypeRoot, true)
+		},
+		Sync: contactsSyncStore{provider: storageProvider},
+	})
+
+	appData := service.NewAppData(service.Options{
 		Config:        cfg,
 		Version:       tree.version,
 		Salt:          salt,
@@ -592,6 +610,9 @@ func newAppData(
 		LocalSettings: storage.NewSettingsStorage(localStorageProvider),
 		Cache:         cache,
 		Domains:       domains,
+		// AddressBookProvider() for the contactsAllowed flag and ContactsSync
+		// (?/AppData) and the ?/Raw/Contacts* exports (step 22).
+		AddressBook: contactsProvider,
 		// FilesProvider() and StorageProvider(): the uploaded attachment blobs
 		// and the account CONFIG entries (?/Upload and ?/Raw, step 12).
 		Files:   storage.NewFiles(storageDir),
@@ -604,6 +625,33 @@ func newAppData(
 		// logger must stay a nil *logx.Logger, not a typed nil interface.
 		Logger: logger,
 	})
+
+	return appData, contactsProvider
+}
+
+// contactsSyncStore adapts the storage provider to contacts.SyncStore: the
+// "contacts_sync" blob lives in the account CONFIG folder.
+type contactsSyncStore struct {
+	provider *storage.Provider
+}
+
+// syncDataKey is the CONFIG key of the contacts sync blob.
+const syncDataKey = "contacts_sync"
+
+// GetSync is Actions\Contacts::getContactsSyncData()'s storage read.
+func (s contactsSyncStore) GetSync(resolved *account.Account) (string, bool) {
+	if nil == s.provider {
+		return "", false
+	}
+	return s.provider.Get(resolved, storage.TypeConfig, syncDataKey)
+}
+
+// PutSync is Actions\Contacts::setContactsSyncData()'s storage write.
+func (s contactsSyncStore) PutSync(resolved *account.Account, value string) error {
+	if nil == s.provider {
+		return nil
+	}
+	return s.provider.Put(resolved, storage.TypeConfig, syncDataKey, value)
 }
 
 // isDevVersion is SNAPPYMAIL_DEV: '0.0.0' === APP_VERSION.

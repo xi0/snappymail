@@ -154,6 +154,9 @@ type Options struct {
 	// SMTP sends composed messages (DoSendMessage/DoSendReadReceiptMessage).
 	// A nil factory makes sending report CantSendMessage.
 	SMTP SenderFactory
+	// Contacts is Actions\Contacts::AddressBookProvider() (step 22). A nil
+	// provider reports every account as having no address book.
+	Contacts AddressBook
 }
 
 // Dispatcher is the port of \RainLoop\ServiceActions::ServiceJson().
@@ -177,6 +180,7 @@ type Dispatcher struct {
 	newMail       MailFactory
 	files         FilesProvider
 	newSender     SenderFactory
+	contacts      AddressBook
 }
 
 // NewDispatcher builds the dispatcher and registers the trivial actions.
@@ -201,6 +205,7 @@ func NewDispatcher(options Options) *Dispatcher {
 		newMail:       options.Mail,
 		files:         options.Files,
 		newSender:     options.SMTP,
+		contacts:      options.Contacts,
 	}
 
 	if nil == dispatcher.now {
@@ -217,6 +222,7 @@ func NewDispatcher(options Options) *Dispatcher {
 	RegisterMessageSend(dispatcher)
 	RegisterAttachments(dispatcher)
 	RegisterUser(dispatcher)
+	RegisterContacts(dispatcher)
 
 	return dispatcher
 }

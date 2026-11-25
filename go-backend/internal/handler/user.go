@@ -237,6 +237,8 @@ func (c *Context) hasCapa(name string) bool {
 		return config.GetBool("webmail", "allow_themes", false)
 	case "UserBackground":
 		return config.GetBool("webmail", "allow_user_background", false)
+	case "Contacts":
+		return config.GetBool("contacts", "enable", false)
 	}
 	return false
 }
