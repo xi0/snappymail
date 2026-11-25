@@ -152,6 +152,8 @@ type Options struct {
 	// Storage is StorageProvider(): account CONFIG entries such as the user
 	// background (step 12).
 	Storage *storage.Provider
+	// Identities is Actions\Accounts::IdentitiesProvider() (step 24).
+	Identities *account.Identities
 	// MessageStreamer is MailClient()->MessageMimeStream() for the Raw message
 	// endpoints (step 14). A nil value disables the message branches.
 	MessageStreamer MessageStreamer
@@ -304,6 +306,18 @@ func (a *AppData) Settings() SettingsStore {
 // the NOBODY "Cache/Timers" bookkeeping of step 21, or nil when not wired.
 func (a *AppData) StorageProvider() *storage.Provider {
 	return a.options.Storage
+}
+
+// IdentitiesProvider returns Actions\Accounts::IdentitiesProvider() (step 24),
+// or nil when the option is not wired.
+func (a *AppData) IdentitiesProvider() *account.Identities {
+	return a.options.Identities
+}
+
+// LocalDomains is array_column(DomainProvider()->GetList(), 'name'), the
+// "localDomains" value of Actions\Accounts::getAccountData().
+func (a *AppData) LocalDomains() []string {
+	return a.localDomains()
 }
 
 // SettingsStore is Providers\Settings with both accessors, the shape the Do*

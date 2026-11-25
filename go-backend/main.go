@@ -53,6 +53,7 @@ import (
 	"github.com/xi0/snappymail/go-backend/internal/domain"
 	"github.com/xi0/snappymail/go-backend/internal/handler"
 	"github.com/xi0/snappymail/go-backend/internal/httpx"
+	"github.com/xi0/snappymail/go-backend/internal/imapclient"
 	"github.com/xi0/snappymail/go-backend/internal/l10n"
 	"github.com/xi0/snappymail/go-backend/internal/logx"
 	"github.com/xi0/snappymail/go-backend/internal/pages"
@@ -509,6 +510,54 @@ func newHandler(tree installTree, logger *logx.Logger, application *config.Appli
 		}
 		return sieveclient.NewProvider(hooks, logger)
 	}
+	// Actions\Accounts::IdentitiesProvider() and DomainProvider() (step 24).
+	options.Identities = appData.IdentitiesProvider()
+	options.LocalDomains = appData.LocalDomains
+	// Actions\Accounts::GetAccounts()/SetAccounts(), the token sealing and the
+	// account switch (step 24).
+	options.Accounts = func(session handler.Session) handler.Accounts {
+		authenticator, _ := session.(*auth.Authenticator)
+
+		var imapConfig imapclient.Config
+		if nil != application {
+			imapConfig = application
+		}
+
+		// auth.Login.IMAPLogin is Account::ImapConnectAndLogin(); it validates the
+		// credentials of an additional account in DoAccountSetup and the switch.
+		imapLogin := func(target *account.Account) error {
+			client, err := imapclient.ConnectAndLogin(target, imapConfig, nil, logger)
+			if nil != err {
+				return err
+			}
+			return client.Close()
+		}
+
+		// Actions\Accounts::DoAccountUnread(): the UNSEEN counter of the INBOX.
+		unread := func(target *account.Account) (int, error) {
+			client, err := imapclient.ConnectAndLogin(target, imapConfig, nil, logger)
+			if nil != err {
+				return 0, err
+			}
+			defer client.Close()
+
+			info, err := client.FolderStatus("INBOX", false)
+			if nil != err || nil == info || nil == info.Unseen {
+				return 0, err
+			}
+			return *info.Unseen, nil
+		}
+
+		return service.NewAccounts(authenticator, service.AccountsOptions{
+			Config:           appData.Config(),
+			Logger:           logger,
+			Settings:         appData.Settings(),
+			Storage:          appData.StorageProvider(),
+			ValidateLanguage: func(language string) string { return appData.ValidateLanguage(language, false) },
+			IMAPLogin:        imapLogin,
+			Unread:           unread,
+		})
+	}
 	router.Register("Json", handler.NewDispatcher(options).Serve)
 
 	return router
@@ -553,6 +602,12 @@ func newAppData(
 	storageDir := filepath.Join(tree.privateData, "storage")
 	storageProvider := storage.NewProvider(storage.NewFileStorage(storageDir, false))
 	localStorageProvider := storage.NewProvider(storage.NewFileStorage(storageDir, true))
+
+	// Actions\Accounts::IdentitiesProvider() (step 24): the file driver stores
+	// the identity documents in the local CONFIG folder, so an additional
+	// account keeps its own list.
+	identities := account.NewIdentities(localStorageProvider, storageProvider,
+		cfg.GetBool("webmail", "popup_identity", true))
 
 	domains := domain.NewProvider(filepath.Join(tree.privateData, "domains"), nil, domain.Defaults{})
 	// Providers\Domain adds the filter.domain hook and the account checks the
@@ -627,6 +682,8 @@ func newAppData(
 		// and the account CONFIG entries (?/Upload and ?/Raw, step 12).
 		Files:   storage.NewFiles(storageDir),
 		Storage: storageProvider,
+		// Actions\Accounts::IdentitiesProvider() (step 24).
+		Identities: identities,
 		// Go resizes thumbnails itself (golang.org/x/image), so the equivalent
 		// of PHP's gd/imagick check is always true.
 		AttachmentThumbnails: true,

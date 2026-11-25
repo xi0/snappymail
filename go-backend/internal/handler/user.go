@@ -239,6 +239,10 @@ func (c *Context) hasCapa(name string) bool {
 		return config.GetBool("webmail", "allow_user_background", false)
 	case "Contacts":
 		return config.GetBool("contacts", "enable", false)
+	case "AdditionalAccounts":
+		return config.GetBool("webmail", "allow_additional_accounts", false)
+	case "Identities":
+		return config.GetBool("webmail", "allow_additional_identities", false)
 	}
 	return false
 }

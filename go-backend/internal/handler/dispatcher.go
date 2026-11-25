@@ -165,6 +165,15 @@ type Options struct {
 	// Filters is Actions\Filters::FiltersProvider() (step 23). A nil factory
 	// reports every account as having no filter driver.
 	Filters FiltersFactory
+	// Accounts is the additional account surface (step 24). A nil factory makes
+	// the DoAccount* list actions report FalseResponse.
+	Accounts AccountsFactory
+	// Identities is Actions\Accounts::IdentitiesProvider() (step 24). A nil
+	// provider makes DoAccountsAndIdentities return an empty list.
+	Identities *account.Identities
+	// LocalDomains is array_column(DomainProvider()->GetList(), 'name'): the
+	// "localDomains" value of getAccountData().
+	LocalDomains func() []string
 }
 
 // Dispatcher is the port of \RainLoop\ServiceActions::ServiceJson().
@@ -190,6 +199,9 @@ type Dispatcher struct {
 	newSender     SenderFactory
 	contacts      AddressBook
 	newFilters    FiltersFactory
+	newAccounts   AccountsFactory
+	identities    *account.Identities
+	localDomains  func() []string
 }
 
 // NewDispatcher builds the dispatcher and registers the trivial actions.
@@ -216,6 +228,9 @@ func NewDispatcher(options Options) *Dispatcher {
 		newSender:     options.SMTP,
 		contacts:      options.Contacts,
 		newFilters:    options.Filters,
+		newAccounts:   options.Accounts,
+		identities:    options.Identities,
+		localDomains:  options.LocalDomains,
 	}
 
 	if nil == dispatcher.now {
@@ -234,6 +249,7 @@ func NewDispatcher(options Options) *Dispatcher {
 	RegisterUser(dispatcher)
 	RegisterContacts(dispatcher)
 	RegisterFilters(dispatcher)
+	RegisterAccounts(dispatcher)
 
 	return dispatcher
 }

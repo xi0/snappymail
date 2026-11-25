@@ -14,8 +14,8 @@ package handler
 //   - HtmlUtils::BuildHtml() (inline image extraction) and
 //     HtmlUtils::ConvertHtmlToPlain() are not ported, so the plain alternative
 //     comes from the request (`plain`) and inline data URLs are not extracted.
-//   - The read receipt identity is the account e-mail/name until Step 24 adds
-//     the identity provider.
+//   - The read receipt identity comes from Actions\Accounts::GetIdentityByID()
+//     (step 24); without an identity provider the account e-mail/name is used.
 //   - The address book frequency counter (IncFrec) is Step 22.
 //   - SMTP.usePhpMail reports CantSendMessage (Go has no mail()).
 
@@ -444,11 +444,24 @@ func buildReadReceiptMessage(ctx *Context, account *account.Account) *mime.Built
 	}
 	message := mime.NewBuiltMessage(options)
 
-	// Identity selection (GetIdentityByID) arrives with Step 24; until then the
-	// account e-mail/name is the default identity.
 	identity := mime.NewEmail(account.Email(), account.Name())
+	replyTo := ""
+	if provider := ctx.identities(); nil != provider {
+		// Actions\Accounts::GetIdentityByID($oAccount, '', true).
+		resolvedIdentity := ctx.getIdentityByID(account, "", true)
+		if nil == resolvedIdentity {
+			// PHP: a missing identity is UnknownError, which the action reports.
+			return nil
+		}
+		identity = mime.NewEmail(resolvedIdentity.Email(), resolvedIdentity.Name())
+		replyTo = resolvedIdentity.ReplyTo()
+	}
+
 	message.SetFrom(identity)
 	message.RegenerateMessageID(identity.GetDomain())
+	if "" != replyTo {
+		message.SetReplyTo(mime.NewEmailCollection(replyTo))
+	}
 	message.SetSubject(subject)
 	message.SetTo(mime.NewEmailCollection(readReceipt))
 
