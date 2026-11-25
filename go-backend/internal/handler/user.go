@@ -229,7 +229,7 @@ func layoutCallback(value any) any {
 	return number
 }
 
-// hasCapa is Actions::GetCapa() for the capabilities Step 21 reads.
+// hasCapa is Actions::GetCapa() for the capabilities Steps 21/25 read.
 func (c *Context) hasCapa(name string) bool {
 	config := c.Config()
 	switch name {
@@ -243,6 +243,13 @@ func (c *Context) hasCapa(name string) bool {
 		return config.GetBool("webmail", "allow_additional_accounts", false)
 	case "Identities":
 		return config.GetBool("webmail", "allow_additional_identities", false)
+	case "OpenPGP":
+		return config.GetBool("security", "openpgp", true)
+	case "GnuPG":
+		// PHP requires the gpg binary or the pecl extension here
+		// (GnuPG::isSupported()); the Go backend always ships the pure Go
+		// OpenPGP engine, so the configuration value decides.
+		return config.GetBool("security", "gnupg", true)
 	}
 	return false
 }

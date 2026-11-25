@@ -57,6 +57,7 @@ import (
 	"github.com/xi0/snappymail/go-backend/internal/l10n"
 	"github.com/xi0/snappymail/go-backend/internal/logx"
 	"github.com/xi0/snappymail/go-backend/internal/pages"
+	"github.com/xi0/snappymail/go-backend/internal/pgp"
 	"github.com/xi0/snappymail/go-backend/internal/service"
 	"github.com/xi0/snappymail/go-backend/internal/sieveclient"
 	"github.com/xi0/snappymail/go-backend/internal/smtpclient"
@@ -558,6 +559,19 @@ func newHandler(tree installTree, logger *logx.Logger, application *config.Appli
 			Unread:           unread,
 		})
 	}
+	// Actions\Pgp::GnuPG() and SnappyMail\PGP\Backup (step 25): the per-account
+	// gnupg home directory, the escrowed key pairs and the key server lookups.
+	options.PGP = func(session handler.Session) handler.PGP {
+		authenticator, _ := session.(*auth.Authenticator)
+		if nil == authenticator {
+			return nil
+		}
+		return service.NewPGP(service.PGPOptions{
+			Session: authenticator,
+			Storage: appData.StorageProvider(),
+			Version: tree.version,
+		})
+	}
 	router.Register("Json", handler.NewDispatcher(options).Serve)
 
 	return router
@@ -687,7 +701,11 @@ func newAppData(
 		// Go resizes thumbnails itself (golang.org/x/image), so the equivalent
 		// of PHP's gd/imagick check is always true.
 		AttachmentThumbnails: true,
-		NewSession:           newSession,
+		// PGP\GnuPG::getInstance('')->getEngineInfo()['version'] (step 25): the
+		// gpg version of the host, or the Go engine marker. It feeds
+		// Capa.GnuPG and the admin panel's "gnupg" field.
+		GnuPGVersion: pgp.EngineVersion(),
+		NewSession:   newSession,
 		// The ?/CspReport logger (SnappyMail\HTTP\CSP::logReport()). A nil
 		// logger must stay a nil *logx.Logger, not a typed nil interface.
 		Logger: logger,

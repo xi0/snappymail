@@ -3,6 +3,7 @@ module github.com/xi0/snappymail/go-backend
 go 1.27.3
 
 require (
+	github.com/ProtonMail/go-crypto v1.5.2
 	github.com/andybalholm/brotli v1.3.0
 	golang.org/x/crypto v0.59.0
 	golang.org/x/image v0.48.0
@@ -11,7 +12,6 @@ require (
 )
 
 require (
-	github.com/ProtonMail/go-crypto v1.5.2 // indirect
 	github.com/aymerick/douceur v0.2.0 // indirect
 	github.com/boombuler/barcode v1.0.1-0.20190219062509-6c824513bacc // indirect
 	github.com/cloudflare/circl v1.6.3 // indirect

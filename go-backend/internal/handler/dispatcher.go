@@ -168,6 +168,10 @@ type Options struct {
 	// Accounts is the additional account surface (step 24). A nil factory makes
 	// the DoAccount* list actions report FalseResponse.
 	Accounts AccountsFactory
+	// PGP is the OpenPGP surface (step 25): the key escrow of
+	// SnappyMail\PGP\Backup, the GnuPG engine and the key server lookups. A nil
+	// factory makes the DoPgp*/DoGnupg* actions report no keys and no engine.
+	PGP PGPFactory
 	// Identities is Actions\Accounts::IdentitiesProvider() (step 24). A nil
 	// provider makes DoAccountsAndIdentities return an empty list.
 	Identities *account.Identities
@@ -200,6 +204,7 @@ type Dispatcher struct {
 	contacts      AddressBook
 	newFilters    FiltersFactory
 	newAccounts   AccountsFactory
+	newPGP        PGPFactory
 	identities    *account.Identities
 	localDomains  func() []string
 }
@@ -229,6 +234,7 @@ func NewDispatcher(options Options) *Dispatcher {
 		contacts:      options.Contacts,
 		newFilters:    options.Filters,
 		newAccounts:   options.Accounts,
+		newPGP:        options.PGP,
 		identities:    options.Identities,
 		localDomains:  options.LocalDomains,
 	}
@@ -250,6 +256,7 @@ func NewDispatcher(options Options) *Dispatcher {
 	RegisterContacts(dispatcher)
 	RegisterFilters(dispatcher)
 	RegisterAccounts(dispatcher)
+	RegisterPGP(dispatcher)
 
 	return dispatcher
 }
