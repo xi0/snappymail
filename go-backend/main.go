@@ -57,6 +57,7 @@ import (
 	"github.com/xi0/snappymail/go-backend/internal/logx"
 	"github.com/xi0/snappymail/go-backend/internal/pages"
 	"github.com/xi0/snappymail/go-backend/internal/service"
+	"github.com/xi0/snappymail/go-backend/internal/sieveclient"
 	"github.com/xi0/snappymail/go-backend/internal/smtpclient"
 	"github.com/xi0/snappymail/go-backend/internal/storage"
 	"github.com/xi0/snappymail/go-backend/internal/suggestions"
@@ -498,6 +499,15 @@ func newHandler(tree installTree, logger *logx.Logger, application *config.Appli
 		}
 		return smtpclient.NewSender(hooks, logger,
 			appData.Config().GetBool("labs", "smtp_show_server_errors", false))
+	}
+	// Actions\Filters::FiltersProvider() (step 23): the ManageSieve provider of
+	// the account's domain (SieveSettings.enabled gates it through Capa.Sieve).
+	options.Filters = func(plugins handler.Plugins) handler.Filters {
+		var hooks account.Hooks
+		if nil != plugins {
+			hooks = plugins
+		}
+		return sieveclient.NewProvider(hooks, logger)
 	}
 	router.Register("Json", handler.NewDispatcher(options).Serve)
 

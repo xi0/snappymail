@@ -103,6 +103,11 @@ type Sender interface {
 // handed in so the sender can run the smtp.* connect/login hooks.
 type SenderFactory func(plugins Plugins) Sender
 
+// FiltersFactory builds Actions\Filters::FiltersProvider(): the filter provider
+// of one request. The plugin manager is handed in so the provider can run the
+// sieve.* connect/login hooks.
+type FiltersFactory func(plugins Plugins) Filters
+
 // Options build a Dispatcher. Everything but Version is optional; a nil
 // dependency keeps the corresponding behaviour unported (see the step notes).
 type Options struct {
@@ -157,6 +162,9 @@ type Options struct {
 	// Contacts is Actions\Contacts::AddressBookProvider() (step 22). A nil
 	// provider reports every account as having no address book.
 	Contacts AddressBook
+	// Filters is Actions\Filters::FiltersProvider() (step 23). A nil factory
+	// reports every account as having no filter driver.
+	Filters FiltersFactory
 }
 
 // Dispatcher is the port of \RainLoop\ServiceActions::ServiceJson().
@@ -181,6 +189,7 @@ type Dispatcher struct {
 	files         FilesProvider
 	newSender     SenderFactory
 	contacts      AddressBook
+	newFilters    FiltersFactory
 }
 
 // NewDispatcher builds the dispatcher and registers the trivial actions.
@@ -206,6 +215,7 @@ func NewDispatcher(options Options) *Dispatcher {
 		files:         options.Files,
 		newSender:     options.SMTP,
 		contacts:      options.Contacts,
+		newFilters:    options.Filters,
 	}
 
 	if nil == dispatcher.now {
@@ -223,6 +233,7 @@ func NewDispatcher(options Options) *Dispatcher {
 	RegisterAttachments(dispatcher)
 	RegisterUser(dispatcher)
 	RegisterContacts(dispatcher)
+	RegisterFilters(dispatcher)
 
 	return dispatcher
 }
