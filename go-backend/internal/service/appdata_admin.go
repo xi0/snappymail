@@ -3,8 +3,11 @@ package service
 // The admin state of AppData: ActionsAdmin::AdminAppData().
 
 import (
+	cryptorand "crypto/rand"
+	"encoding/base64"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // adminAppData is ActionsAdmin::AdminAppData(): the "Admin" block, the admin
@@ -29,9 +32,9 @@ func (a *AppData) adminAppData(result map[string]any, session *Session) {
 	result["Auth"] = a.adminLoggedIn(session)
 
 	if !phpBool(result["Auth"]) {
-		// The password bootstrap of the not-logged-in branch (write
-		// admin_password.txt, generate and store the hash) belongs to the admin
-		// core port (step 27); the response shape is identical without it.
+		// The not-logged-in branch seeds a random admin password on first visit
+		// (write admin_password.txt, store the hash) so the panel is reachable.
+		a.bootstrapAdminPassword(config)
 		return
 	}
 
@@ -99,6 +102,50 @@ func (a *AppData) pdoDrivers() []string {
 		return []string{}
 	}
 	return a.options.PdoDrivers
+}
+
+// adminPasswordBootstrap is the config surface of the first-run password seed;
+// *config.Application satisfies it.
+type adminPasswordBootstrap interface {
+	SetPassword(password string)
+	Save() error
+}
+
+// bootstrapAdminPassword is the else branch of ActionsAdmin::AdminAppData():
+// when no admin password is configured, generate one, store it in
+// admin_password.txt (the "weak password" marker the installer uses) and persist
+// the bcrypt hash so the panel becomes reachable.
+func (a *AppData) bootstrapAdminPassword(config Config) {
+	if "" != config.GetString("security", "admin_password", "") {
+		return
+	}
+
+	password := randomAdminPassword()
+
+	if "" != a.options.PrivateData {
+		if err := os.MkdirAll(a.options.PrivateData, 0o700); nil == err {
+			_ = os.WriteFile(filepath.Join(a.options.PrivateData, "admin_password.txt"),
+				[]byte(password+"\n"), 0o600)
+		}
+	}
+
+	if setter, ok := a.options.Config.(adminPasswordBootstrap); ok && nil != setter {
+		setter.SetPassword(password)
+		_ = setter.Save()
+	}
+}
+
+// randomAdminPassword is substr(base64_encode(random_bytes(16)), 0, 12).
+func randomAdminPassword() string {
+	buffer := make([]byte, 16)
+	if _, err := cryptorand.Read(buffer); nil != err {
+		return "changeme"
+	}
+	encoded := base64.StdEncoding.EncodeToString(buffer)
+	if 12 < len(encoded) {
+		encoded = encoded[:12]
+	}
+	return strings.TrimSpace(encoded)
 }
 
 // weakAdminPassword is is_file(APP_PRIVATE_DATA . 'admin_password.txt'): the

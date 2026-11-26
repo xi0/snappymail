@@ -12,6 +12,7 @@ import (
 
 	"github.com/xi0/snappymail/go-backend/internal/account"
 	"github.com/xi0/snappymail/go-backend/internal/appctx"
+	"github.com/xi0/snappymail/go-backend/internal/domain"
 	"github.com/xi0/snappymail/go-backend/internal/httpx"
 	"github.com/xi0/snappymail/go-backend/internal/logx"
 	"github.com/xi0/snappymail/go-backend/internal/web"
@@ -122,6 +123,20 @@ type Options struct {
 	Session SessionFactory
 	// Admin is the admin session used by the admin-only action gate.
 	Admin Admin
+	// AdminPanel builds the per-request admin session (the gate plus the
+	// login/logout the admin actions need). When set it takes precedence over
+	// Admin, because the admin state lives in the request cookies and cache.
+	AdminPanel AdminPanelFactory
+	// AppData builds Actions::AppData() for the request; DoAdminLogin returns
+	// the admin document. A nil builder makes DoAdminLogin report false.
+	AppData func(w http.ResponseWriter, r *http.Request, admin bool) map[string]any
+	// Domains is DomainProvider(): the admin domain CRUD (step 27).
+	Domains *domain.Provider
+	// PrivateData is APP_PRIVATE_DATA (admin_password.txt).
+	PrivateData string
+	// AdminLanguage is Actions\Localization::ValidateLanguage() for the admin
+	// panel language list (DoAdminSettingsUpdate), a nil value keeps the code.
+	AdminLanguage func(language string) string
 	// Plugins runs the hooks and additional JSON actions.
 	Plugins Plugins
 	// Cacher is Actions::Cacher(), used to suppress an already sent read
@@ -192,6 +207,11 @@ type Dispatcher struct {
 	logger        Logger
 	newSession    SessionFactory
 	admin         Admin
+	adminPanel    AdminPanelFactory
+	appData       func(w http.ResponseWriter, r *http.Request, admin bool) map[string]any
+	domains       *domain.Provider
+	privateData   string
+	adminLanguage func(language string) string
 	plugins       Plugins
 	newCacher     CacherFactory
 	now           func() time.Time
@@ -223,6 +243,11 @@ func NewDispatcher(options Options) *Dispatcher {
 		logger:        options.Logger,
 		newSession:    options.Session,
 		admin:         options.Admin,
+		adminPanel:    options.AdminPanel,
+		appData:       options.AppData,
+		domains:       options.Domains,
+		privateData:   options.PrivateData,
+		adminLanguage: options.AdminLanguage,
 		plugins:       options.Plugins,
 		newCacher:     options.Cacher,
 		now:           options.Now,
@@ -265,6 +290,9 @@ func NewDispatcher(options Options) *Dispatcher {
 	RegisterAccounts(dispatcher)
 	RegisterPGP(dispatcher)
 	RegisterSMIME(dispatcher)
+	RegisterAdmin(dispatcher)
+	RegisterAdminDomains(dispatcher)
+	RegisterAdminExtensions(dispatcher)
 
 	return dispatcher
 }
@@ -345,7 +373,7 @@ func (d *Dispatcher) dispatch(
 		}
 	}
 
-	if err := d.checkAdmin(route, action); nil != err {
+	if err := d.checkAdmin(route, action, session); nil != err {
 		return d.ExceptionResponse(err), action
 	}
 
@@ -369,6 +397,16 @@ func (d *Dispatcher) dispatch(
 	}
 
 	var result any
+
+	// The DoAdmin* actions belong to ActionsAdmin only: in the user area PHP has
+	// no such method and reports UnknownError (not an auth refusal). A plugin may
+	// still provide a same-named action, so only a built-in Admin* handler is
+	// shadowed here.
+	if (nil == route || !route.Admin) && strings.HasPrefix(strings.ToLower(action), adminActionPrefix) {
+		if _, builtin := d.registry.Lookup(action); builtin {
+			return d.ExceptionResponse(clientError(appctx.UnknownError, "")), action
+		}
+	}
 
 	if fn, ok := d.registry.Lookup(action); ok {
 		d.runHook("json.before-" + action)
@@ -518,7 +556,7 @@ func (d *Dispatcher) logTokenMismatch(provided, token string, session Session, c
 // checkAdmin is the admin-only action gate: an "Admin*" action other than
 // AdminLogin/AdminLogout needs an admin session, but only when the request
 // addresses the admin area (PHP: "$this->oActions instanceof ActionsAdmin").
-func (d *Dispatcher) checkAdmin(route *web.Route, action string) error {
+func (d *Dispatcher) checkAdmin(route *web.Route, action string, session Session) error {
 	if nil == route || !route.Admin {
 		return nil
 	}
@@ -530,13 +568,17 @@ func (d *Dispatcher) checkAdmin(route *web.Route, action string) error {
 		return nil
 	}
 
-	if nil == d.admin {
+	admin := d.admin
+	if nil != d.adminPanel {
+		admin = d.adminPanel(session)
+	}
+	if nil == admin {
 		// No admin session wired yet: the action is refused exactly like an
 		// unauthenticated ActionsAdmin would refuse it.
 		return clientError(appctx.AuthError, "")
 	}
 
-	_, err := d.admin.IsLoggedIn(true)
+	_, err := admin.IsLoggedIn(true)
 	return err
 }
 

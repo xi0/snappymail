@@ -204,6 +204,25 @@ func (d *Domain) Encode() ([]byte, error) {
 	return marshalPretty(d.object())
 }
 
+// JSONSerialize is Domain::jsonSerialize(): the domain config as a decoded JSON
+// object, the shape Actions\AdminDomains::DoAdminDomainLoad() returns (the
+// caller adds the "name").
+//
+// The value is produced by round-tripping Encode(), so the nested IMAP/SMTP/
+// Sieve blocks keep the same key names and types the PHP admin panel reads.
+func (d *Domain) JSONSerialize() map[string]any {
+	encoded, err := d.Encode()
+	if nil != err {
+		return map[string]any{}
+	}
+
+	var result map[string]any
+	if err := json.Unmarshal(encoded, &result); nil != err {
+		return map[string]any{}
+	}
+	return result
+}
+
 // object is Domain::jsonSerialize().
 func (d *Domain) object() object {
 	result := object{

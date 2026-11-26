@@ -57,6 +57,16 @@ func NewProvider(dir string, cache Cache, defaults Defaults) *Provider {
 // Dir returns the domains folder of the provider.
 func (p *Provider) Dir() string { return p.dir }
 
+// NewFromArray is RainLoop\Model\Domain::fromArray() with the provider's
+// defaults (the application.ini [ssl] section) as the seed of a new config.
+//
+// It is the building block of Providers\Domain::LoadOrCreateNewFromAction(): the
+// admin action decodes the IMAP/SMTP/Sieve/whiteList parameters into the
+// "IMAP"/"SMTP"/"Sieve"/"whiteList" keys and hands them here.
+func (p *Provider) NewFromArray(name string, value map[string]any) *Domain {
+	return FromArray(name, value, p.defaults)
+}
+
 // loadOptions are the optional booleans of DefaultDomain::Load().
 type loadOptions struct {
 	findWithWildCard bool

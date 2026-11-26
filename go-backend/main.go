@@ -409,8 +409,9 @@ func newHandler(tree installTree, logger *logx.Logger, application *config.Appli
 
 	// The AppData/AdminAppData plus Lang/Css/Plugins endpoints and the index
 	// page share one cookie/account/cache stack. The contacts provider (step 22)
-	// is built alongside the storage/settings providers it depends on.
-	appData, contactsProvider := newAppData(tree, logger, application, paths)
+	// is built alongside the storage/settings providers it depends on. The
+	// domain provider is reused by the admin domain CRUD (step 27).
+	appData, contactsProvider, domainsProvider := newAppData(tree, logger, application, paths)
 
 	// The index page (internal/pages): the renderer reads the webmail state
 	// through AppData.IndexActions and re-emits the CSP with the script nonce.
@@ -444,8 +445,9 @@ func newHandler(tree installTree, logger *logx.Logger, application *config.Appli
 	// resolution behave like PHP. Step 15 adds the folder surface: the
 	// settings_local provider, the file provider and the per-request IMAP
 	// connection (initMailClientConnection), step 17 the message view with the
-	// APP_SALT account hash of the RawKeys and the per-account cache. The admin
-	// session (step 27) and the plugin manager (step 28) are still unwired.
+	// APP_SALT account hash of the RawKeys and the per-account cache. Step 27
+	// wires the admin panel (session, settings, domains, extensions); the plugin
+	// manager (step 28) is still unwired.
 	options := handler.Options{Version: tree.version, Salt: appData.Salt()}
 	if nil != logger {
 		// A typed-nil *logx.Logger would be a non-nil handler.Logger interface
@@ -589,6 +591,44 @@ func newHandler(tree installTree, logger *logx.Logger, application *config.Appli
 			Authority: smimeAuthority,
 		})
 	}
+
+	// The admin panel (step 27): the session lives in the smadmin cookie and the
+	// session marker in the file cache, so it is rebuilt per request from the
+	// request's authenticator. The configuration is the concrete
+	// *config.Application so the settings actions can write it back; a nil
+	// concrete value leaves the admin settings read-only.
+	adminConfig, _ := appData.Config().(*config.Application)
+	options.AdminLanguage = func(language string) string { return appData.ValidateLanguage(language, true) }
+	options.Domains = domainsProvider
+	options.PrivateData = tree.privateData
+	options.AdminPanel = func(session handler.Session) handler.AdminPanel {
+		authenticator, _ := session.(*auth.Authenticator)
+		if nil == authenticator {
+			return nil
+		}
+		adminOptions := service.AdminOptions{
+			Config:        appData.Config(),
+			Cache:         appData.Cacher(),
+			Authenticator: authenticator,
+		}
+		if nil != adminConfig {
+			adminOptions.ValidatePassword = adminConfig.ValidatePassword
+		}
+		return service.NewAdmin(adminOptions)
+	}
+	// Actions::AppData(true) is the result of DoAdminLogin; the admin session is
+	// already logged in, so the synthetic session reports it.
+	options.AppData = func(w http.ResponseWriter, r *http.Request, admin bool) map[string]any {
+		session := appData.NewSession(w, r)
+		if nil == session {
+			session = &service.Session{Request: r, Response: w}
+		}
+		if admin {
+			session.AdminLoggedIn = true
+		}
+		return appData.Build(admin, session)
+	}
+
 	router.Register("Json", handler.NewDispatcher(options).Serve)
 
 	return router
@@ -605,7 +645,7 @@ func newAppData(
 	logger *logx.Logger,
 	application *config.Application,
 	paths httpx.WebPaths,
-) (*service.AppData, *contacts.Provider) {
+) (*service.AppData, *contacts.Provider, *domain.Provider) {
 	cfg := application
 	if nil == cfg {
 		cfg = config.NewApplication(
@@ -670,12 +710,23 @@ func newAppData(
 			Crypt:            crypter,
 			InsecureCryptKey: cfg.GetBool("security", "insecure_cryptkey", false),
 		}
+		authenticator := auth.New(context, jar, w, authLogger)
+
+		// The admin state is per request (smadmin cookie + cache marker); resolve
+		// it once so ?/AdminAppData and the admin actions agree on it.
+		loggedIn, _ := service.NewAdmin(service.AdminOptions{
+			Config:           cfg,
+			Cache:            cache,
+			Authenticator:    authenticator,
+			ValidatePassword: cfg.ValidatePassword,
+		}).IsLoggedIn(false)
 
 		return &service.Session{
 			Request:       r,
 			Response:      w,
-			Authenticator: auth.New(context, jar, w, authLogger),
+			Authenticator: authenticator,
 			Jar:           jar,
+			AdminLoggedIn: loggedIn,
 		}
 	}
 
@@ -728,7 +779,7 @@ func newAppData(
 		Logger: logger,
 	})
 
-	return appData, contactsProvider
+	return appData, contactsProvider, domains
 }
 
 // contactsSyncStore adapts the storage provider to contacts.SyncStore: the
