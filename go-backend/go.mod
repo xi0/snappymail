@@ -5,6 +5,7 @@ go 1.27.3
 require (
 	github.com/ProtonMail/go-crypto v1.5.2
 	github.com/andybalholm/brotli v1.3.0
+	github.com/smallstep/pkcs7 v0.2.3
 	golang.org/x/crypto v0.59.0
 	golang.org/x/image v0.48.0
 	golang.org/x/net v0.63.0
@@ -28,7 +29,6 @@ require (
 	github.com/pquerna/otp v1.5.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e // indirect
-	github.com/smallstep/pkcs7 v0.2.3 // indirect
 	github.com/xdg-go/scram v1.4.0 // indirect
 	github.com/xdg-go/stringprep v1.0.4 // indirect
 	golang.org/x/oauth2 v0.38.0 // indirect

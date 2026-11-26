@@ -172,6 +172,11 @@ type Options struct {
 	// SnappyMail\PGP\Backup, the GnuPG engine and the key server lookups. A nil
 	// factory makes the DoPgp*/DoGnupg* actions report no keys and no engine.
 	PGP PGPFactory
+	// SMIME is the S/MIME surface (step 26): the certificate creator of
+	// SnappyMail\SMime\Certificate and the ".smime" store of the main account.
+	// A nil factory makes the DoSMime* actions report UnknownError, like PHP
+	// calling a method on null.
+	SMIME SMIMEFactory
 	// Identities is Actions\Accounts::IdentitiesProvider() (step 24). A nil
 	// provider makes DoAccountsAndIdentities return an empty list.
 	Identities *account.Identities
@@ -205,6 +210,7 @@ type Dispatcher struct {
 	newFilters    FiltersFactory
 	newAccounts   AccountsFactory
 	newPGP        PGPFactory
+	newSMIME      SMIMEFactory
 	identities    *account.Identities
 	localDomains  func() []string
 }
@@ -235,6 +241,7 @@ func NewDispatcher(options Options) *Dispatcher {
 		newFilters:    options.Filters,
 		newAccounts:   options.Accounts,
 		newPGP:        options.PGP,
+		newSMIME:      options.SMIME,
 		identities:    options.Identities,
 		localDomains:  options.LocalDomains,
 	}
@@ -257,6 +264,7 @@ func NewDispatcher(options Options) *Dispatcher {
 	RegisterFilters(dispatcher)
 	RegisterAccounts(dispatcher)
 	RegisterPGP(dispatcher)
+	RegisterSMIME(dispatcher)
 
 	return dispatcher
 }

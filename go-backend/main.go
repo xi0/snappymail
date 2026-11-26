@@ -60,6 +60,7 @@ import (
 	"github.com/xi0/snappymail/go-backend/internal/pgp"
 	"github.com/xi0/snappymail/go-backend/internal/service"
 	"github.com/xi0/snappymail/go-backend/internal/sieveclient"
+	"github.com/xi0/snappymail/go-backend/internal/smime"
 	"github.com/xi0/snappymail/go-backend/internal/smtpclient"
 	"github.com/xi0/snappymail/go-backend/internal/storage"
 	"github.com/xi0/snappymail/go-backend/internal/suggestions"
@@ -570,6 +571,22 @@ func newHandler(tree installTree, logger *logx.Logger, application *config.Appli
 			Session: authenticator,
 			Storage: appData.StorageProvider(),
 			Version: tree.version,
+		})
+	}
+	// SnappyMail\SMime (step 26): the ".smime" folder of the main account and the
+	// bundled CA that Certificate::createSelfSigned() signs with. SnappyMail does
+	// not embed assets, so the CA is read from the install tree (a missing pair
+	// only makes the created certificates self-signed).
+	smimeAuthority := smime.LoadAuthority(filepath.Join(tree.versionRoot, "app", "libraries", "snappymail", "smime"))
+	options.SMIME = func(session handler.Session) handler.SMIME {
+		authenticator, _ := session.(*auth.Authenticator)
+		if nil == authenticator {
+			return nil
+		}
+		return service.NewSMIME(service.SMIMEOptions{
+			Session:   authenticator,
+			Storage:   appData.StorageProvider(),
+			Authority: smimeAuthority,
 		})
 	}
 	router.Register("Json", handler.NewDispatcher(options).Serve)
