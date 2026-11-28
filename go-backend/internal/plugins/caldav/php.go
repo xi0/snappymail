@@ -7,8 +7,10 @@ import (
 	"crypto/md5"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf16"
 	"unicode/utf8"
 )
@@ -167,4 +169,24 @@ func randomSuffix() string {
 		return "00000000"
 	}
 	return md5Hex(hex.EncodeToString(buffer[:]))[:8]
+}
+
+// phpStrtok is PHP's strtok($sText, $sDelimiters) for a single call: the text up
+// to the first delimiter, or the whole text when it holds none. The ported code
+// only ever uses it to cut the property name off a parameter list
+// ("DTSTART;TZID=…" → "DTSTART").
+func phpStrtok(text, delimiters string) string {
+	if index := strings.IndexAny(text, delimiters); 0 <= index {
+		return text[:index]
+	}
+	return text
+}
+
+// phpUniqid is PHP's uniqid($sPrefix): the prefix plus the current seconds (8
+// hex digits) and microseconds (5 hex digits), i.e. the 13 hex characters of
+// "event-63f1a2b4c5d6e7". The shape is part of the stored resources (the UID of
+// a created event), so it is reproduced rather than replaced by a UUID.
+func phpUniqid(prefix string) string {
+	now := time.Now()
+	return fmt.Sprintf("%s%08x%05x", prefix, now.Unix(), now.Nanosecond()/1000)
 }

@@ -112,22 +112,7 @@ func newDiscoveryFixture(t *testing.T, mock *calDAVServer) *fixture {
 // "Result" document of the envelope.
 func getCalendars(t *testing.T, f *fixture, actions *testActions) map[string]any {
 	t.Helper()
-
-	result, err := f.manager.RunAdditionalJSON(actions, "DoPluginGetCalendars")
-	if nil != err {
-		t.Fatalf("DoPluginGetCalendars: %v", err)
-	}
-
-	envelope, ok := result.(map[string]any)
-	if !ok {
-		t.Fatalf("the action returned %#v, want the plugin envelope", result)
-	}
-
-	document, ok := envelope["Result"].(map[string]any)
-	if !ok {
-		t.Fatalf("Result = %#v, want the action payload", envelope["Result"])
-	}
-	return document
+	return runPluginAction(t, f, actions, "GetCalendars")
 }
 
 // calendarList is the "calendars" member of a GetCalendars payload.

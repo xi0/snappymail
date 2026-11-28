@@ -6,6 +6,10 @@ package caldav
 // normalizeCalendarColor, xmlText, slugifyCalendarName, uniqueCalendarId,
 // calDAVMultistatusHasErrors).
 //
+// Step 30 adds the management of the collections themselves below: MKCALENDAR
+// (DoCreateCalendar), PROPPATCH (DoUpdateCalendar) and DELETE
+// (DoDeleteCalendar), plus the calendarAccess prelude the event actions reuse.
+//
 // The multistatus parsing replaces DOMDocument/DOMXPath with encoding/xml. Go
 // matches elements by local name here (the PHP code registers the "D"/"C"/"A"
 // prefixes explicitly), so a server that returns unqualified elements is
@@ -529,3 +533,262 @@ func rawURLDecode(value string) string {
 	}
 	return decoded
 }
+
+/* ------------------------------------------------------------------
+   Calendar collections (create, rename/recolor, delete)
+   ------------------------------------------------------------------ */
+
+// mkCalendarBody is the MKCALENDAR payload of DoCreateCalendar().
+//
+// The collection declares VEVENT support, so a server that also hosts tasks or
+// journals does not mix them into the new calendar.
+func mkCalendarBody(name, color string) string {
+	var body strings.Builder
+
+	body.WriteString(`<?xml version="1.0" encoding="utf-8" ?>` + "\n")
+	body.WriteString(`<C:mkcalendar xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav" xmlns:A="http://apple.com/ns/ical/">` + "\n")
+	body.WriteString("  <D:set>\n")
+	body.WriteString("    <D:prop>\n")
+	body.WriteString("      <D:displayname>" + xmlText(name) + "</D:displayname>\n")
+	if "" != color {
+		body.WriteString("      <A:calendar-color>" + color + "</A:calendar-color>\n")
+	}
+	body.WriteString("      <C:supported-calendar-component-set>\n")
+	body.WriteString(`        <C:comp name="VEVENT" />` + "\n")
+	body.WriteString("      </C:supported-calendar-component-set>\n")
+	body.WriteString("    </D:prop>\n")
+	body.WriteString("  </D:set>\n")
+	body.WriteString("</C:mkcalendar>")
+
+	return body.String()
+}
+
+// propertyUpdateBody is the PROPPATCH payload of DoUpdateCalendar(): the display
+// name and, when a colour was given, the calendar colour.
+func propertyUpdateBody(name, color string) string {
+	var body strings.Builder
+
+	body.WriteString(`<?xml version="1.0" encoding="utf-8" ?>` + "\n")
+	body.WriteString(`<D:propertyupdate xmlns:D="DAV:" xmlns:A="http://apple.com/ns/ical/">` + "\n")
+	body.WriteString("  <D:set>\n")
+	body.WriteString("    <D:prop>\n")
+	body.WriteString("      <D:displayname>" + xmlText(name) + "</D:displayname>\n")
+	if "" != color {
+		body.WriteString("      <A:calendar-color>" + color + "</A:calendar-color>\n")
+	}
+	body.WriteString("    </D:prop>\n")
+	body.WriteString("  </D:set>\n")
+	body.WriteString("</D:propertyupdate>")
+
+	return body.String()
+}
+
+// calendarAccess is the state every CalDAV action starts with: the request, the
+// stored "calendar_sync" configuration and the password decrypted with the main
+// account's crypt key.
+//
+// The PHP methods repeat the same three early returns (no account, no
+// configuration, no usable crypt key) with slightly different English fallbacks;
+// the caller passes its own fallbacks to calendarAccessFor() and reports the
+// failure through errorMessage().
+type calendarAccess struct {
+	// request is the Actions surface of the call.
+	request *request
+	// config is the stored CalDAV configuration.
+	config *calendarConfig
+	// password is the decrypted CalDAV password.
+	password string
+	// ready reports whether the action may continue.
+	ready bool
+	// key is the notification key of a failure (empty when the failure is an
+	// exception message instead).
+	key string
+	// message is the English fallback of key, or the exception text.
+	message string
+}
+
+// failed reports whether the action has to return early.
+func (a calendarAccess) failed() bool { return !a.ready }
+
+// errorMessage is the text of an early return: the translation of key, or the
+// exception message of a failed decryption.
+func (a calendarAccess) errorMessage(env plugin.Env) string {
+	if "" == a.key {
+		return a.message
+	}
+	return msg(env, a.request, a.key, nil, a.message)
+}
+
+// calendarAccessFor is the shared prelude of the collection and event actions:
+// getAccountFromToken(), getCalendarConfig() and getDecryptedPassword(), mapped
+// onto the early returns of the PHP methods.
+func (p *Plugin) calendarAccessFor(env plugin.Env, ctx plugin.ActionContext, notLoggedIn, notConfigured string) calendarAccess {
+	request := requestFromActions(ctx)
+	if nil == request || nil == request.current {
+		return calendarAccess{key: "ERROR_NOT_LOGGED_IN", message: notLoggedIn}
+	}
+
+	config := calendarConfigFor(env, request)
+	if nil == config {
+		return calendarAccess{request: request, key: "ERROR_NOT_CONFIGURED", message: notConfigured}
+	}
+
+	password, usable, err := decryptedPassword(request, config)
+	if nil != err {
+		return calendarAccess{request: request, config: config, message: err.Error()}
+	}
+	if !usable {
+		return calendarAccess{request: request, config: config,
+			key: "ERROR_NO_ENCRYPTION_KEY", message: "Cannot access encryption key"}
+	}
+
+	return calendarAccess{request: request, config: config, password: password, ready: true}
+}
+
+// doPluginCreateCalendar is CaldavPlugin::DoCreateCalendar(): MKCALENDAR a new
+// collection inside the user's calendar home.
+//
+// The collection name is derived from the display name (slugifyCalendarName)
+// and made unique with a PROPFIND per candidate, so the URL stays readable and
+// the id is a stable reference for the frontend.
+func (p *Plugin) doPluginCreateCalendar(env plugin.Env, ctx plugin.ActionContext) (any, error) {
+	respond := func(result map[string]any) (any, error) {
+		return ctx.DefaultResponse(result, nil), nil
+	}
+
+	fail := func(message string) (any, error) {
+		return respond(map[string]any{"success": false, "error": message})
+	}
+
+	access := p.calendarAccessFor(env, ctx, "Not logged in", "Calendar not configured")
+	if access.failed() {
+		return fail(access.errorMessage(env))
+	}
+
+	config := access.config
+
+	name := strings.TrimSpace(phpString(ctx.GetParam("Name", "")))
+	if "" == name {
+		return fail(msg(env, access.request, "ERROR_CALENDAR_NAME_REQUIRED", nil, "Calendar name required"))
+	}
+
+	color := normalizeCalendarColor(ctx.GetParam("Color", ""))
+
+	id := p.uniqueCalendarId(config, access.password, name)
+	collectionURL := strings.TrimRight(config.URL, "/") + "/" + rawURLEncode(id) + "/"
+
+	result := p.makeCalDAVRequest(
+		collectionURL,
+		"MKCALENDAR",
+		config.User,
+		access.password,
+		mkCalendarBody(name, color),
+		"Content-Type: application/xml; charset=utf-8",
+	)
+
+	if 200 == result.Code || 201 == result.Code || 204 == result.Code {
+		return respond(map[string]any{
+			"success": true,
+			"id":      id,
+			"url":     collectionURL,
+			"name":    name,
+			"color":   color,
+		})
+	}
+
+	return fail(caldavError(env, access.request, result.Code))
+}
+
+// doPluginUpdateCalendar is CaldavPlugin::DoUpdateCalendar(): rename and/or
+// recolour an existing collection with a PROPPATCH.
+//
+// A 207 multistatus is only a success when no property was refused: a server may
+// accept the request and still report a failed property inside the body.
+func (p *Plugin) doPluginUpdateCalendar(env plugin.Env, ctx plugin.ActionContext) (any, error) {
+	respond := func(result map[string]any) (any, error) {
+		return ctx.DefaultResponse(result, nil), nil
+	}
+
+	fail := func(message string) (any, error) {
+		return respond(map[string]any{"success": false, "error": message})
+	}
+
+	access := p.calendarAccessFor(env, ctx, "Not logged in", "Calendar not configured")
+	if access.failed() {
+		return fail(access.errorMessage(env))
+	}
+
+	config := access.config
+
+	name := strings.TrimSpace(phpString(ctx.GetParam("Name", "")))
+	if "" == name {
+		return fail(msg(env, access.request, "ERROR_CALENDAR_NAME_REQUIRED", nil, "Calendar name required"))
+	}
+
+	collectionURL := resolveCollectionUrl(config,
+		phpString(ctx.GetParam("CalendarId", "")),
+		phpString(ctx.GetParam("CalendarUrl", "")))
+	if "" == collectionURL {
+		return fail(msg(env, access.request, "ERROR_CALENDAR_NOT_FOUND", nil, "Calendar not found"))
+	}
+
+	color := normalizeCalendarColor(ctx.GetParam("Color", ""))
+
+	result := p.makeCalDAVRequest(
+		collectionURL,
+		"PROPPATCH",
+		config.User,
+		access.password,
+		propertyUpdateBody(name, color),
+		"Content-Type: application/xml; charset=utf-8",
+	)
+
+	if 207 == result.Code && !calDAVMultistatusHasErrors(result.Body) {
+		return respond(map[string]any{
+			"success": true,
+			"name":    name,
+			"color":   color,
+		})
+	}
+
+	return fail(caldavError(env, access.request, result.Code))
+}
+
+// doPluginDeleteCalendar is CaldavPlugin::DoDeleteCalendar(): delete a
+// collection including all of its events.
+//
+// 404 means the collection is already gone, which is the desired end state.
+func (p *Plugin) doPluginDeleteCalendar(env plugin.Env, ctx plugin.ActionContext) (any, error) {
+	respond := func(result map[string]any) (any, error) {
+		return ctx.DefaultResponse(result, nil), nil
+	}
+
+	fail := func(message string) (any, error) {
+		return respond(map[string]any{"success": false, "error": message})
+	}
+
+	access := p.calendarAccessFor(env, ctx, "Not logged in", "Calendar not configured")
+	if access.failed() {
+		return fail(access.errorMessage(env))
+	}
+
+	config := access.config
+
+	collectionURL := resolveCollectionUrl(config,
+		phpString(ctx.GetParam("CalendarId", "")),
+		phpString(ctx.GetParam("CalendarUrl", "")))
+	if "" == collectionURL {
+		return fail(msg(env, access.request, "ERROR_CALENDAR_NOT_FOUND", nil, "Calendar not found"))
+	}
+
+	// No body and no explicit header list: makeCalDAVRequest() then sends the
+	// PROPFIND defaults, exactly like the PHP call (which passes $body = null).
+	result := p.makeCalDAVRequest(collectionURL, "DELETE", config.User, access.password, "")
+
+	if 200 == result.Code || 202 == result.Code || 204 == result.Code || 404 == result.Code {
+		return respond(map[string]any{"success": true})
+	}
+
+	return fail(caldavError(env, access.request, result.Code))
+}
+

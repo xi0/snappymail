@@ -4,10 +4,10 @@
 //
 // The PHP plugin is ~3k lines, so the port is split over four steps:
 //
-//	step 29 (this file set)  configuration, discovery and the HTTP client
-//	step 30                  calendar collections and event read/create
-//	step 31                  event update/delete and recurrence
-//	step 32                  invites, attendees and iTIP mail
+//	step 29  configuration, discovery and the HTTP client  (config.go, client.go, calendars.go)
+//	step 30  calendar collections and event read/create    (ical.go, events.go)
+//	step 31  event update/delete and recurrence
+//	step 32  invites, attendees and iTIP mail
 //
 // The plugin keeps its own per-account configuration in the CONFIG entry
 // "calendar_sync" of the account storage instead of the CardDAV shared
@@ -190,10 +190,30 @@ func (p *Plugin) Init(env plugin.Env) {
 		request.autoConfigure(env)
 	})
 
-	// The JSON actions. Step 29 provides the discovery; the event and invite
-	// actions are added by steps 30–32.
+	// The JSON actions. Step 29 provides the discovery, step 30 the event read
+	// and create plus the calendar collection management; the update/delete and
+	// invite actions are added by steps 31–32.
 	env.AddJSONAction("GetCalendars", func(ctx plugin.ActionContext) (any, error) {
 		return p.doPluginGetCalendars(env, ctx)
+	})
+
+	// Calendar collections (create, rename/recolor, delete).
+	env.AddJSONAction("CreateCalendar", func(ctx plugin.ActionContext) (any, error) {
+		return p.doPluginCreateCalendar(env, ctx)
+	})
+	env.AddJSONAction("UpdateCalendar", func(ctx plugin.ActionContext) (any, error) {
+		return p.doPluginUpdateCalendar(env, ctx)
+	})
+	env.AddJSONAction("DeleteCalendar", func(ctx plugin.ActionContext) (any, error) {
+		return p.doPluginDeleteCalendar(env, ctx)
+	})
+
+	// Events.
+	env.AddJSONAction("GetCalendarEvents", func(ctx plugin.ActionContext) (any, error) {
+		return p.doPluginGetCalendarEvents(env, ctx)
+	})
+	env.AddJSONAction("CreateCalendarEvent", func(ctx plugin.ActionContext) (any, error) {
+		return p.doPluginCreateCalendarEvent(env, ctx)
 	})
 
 	// meeting.js and openstreetmap.js must load first: they expose
