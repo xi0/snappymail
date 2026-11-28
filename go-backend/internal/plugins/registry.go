@@ -17,14 +17,20 @@
 //	}
 package plugins
 
-import "github.com/xi0/snappymail/go-backend/internal/plugin"
+import (
+	"github.com/xi0/snappymail/go-backend/internal/plugin"
+	"github.com/xi0/snappymail/go-backend/internal/plugins/caldav"
+)
 
 // buildTime lists the plugins compiled into the binary, in registration order.
 //
-// Only "caldav" is in scope for the Go backend (see SPEC.md); its factory is
-// added by step 29. An empty list means the binary has no plugins at all, which
-// behaves exactly like plugins.enable = Off.
-var buildTime = []plugin.Factory{}
+// Only "caldav" is in scope for the Go backend (see SPEC.md). An empty list
+// means the binary has no plugins at all, which behaves exactly like
+// plugins.enable = Off. Step 29 registers the CalDAV plugin; steps 30–32 add its
+// event and invite actions.
+var buildTime = []plugin.Factory{
+	caldav.New,
+}
 
 // All returns the compiled-in plugins. The caller (main) hands the slice to
 // plugin.Options.Registry; the manager instantiates them, filtered by

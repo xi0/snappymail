@@ -426,7 +426,7 @@ func (d *Dispatcher) dispatch(
 		return d.ExceptionResponse(err), action
 	}
 
-	response, err = d.finalizeResponse(action, result)
+	response, err = d.finalizeResponse(action, result, ctx)
 	if nil != err {
 		return d.ExceptionResponse(err), action
 	}
@@ -473,7 +473,7 @@ func (d *Dispatcher) setActionParams(params map[string]any, method string) (map[
 
 // finalizeResponse is the "if (is_array($aResponse))" block plus the
 // "if (!is_array($aResponse)) throw UnknownError" guard.
-func (d *Dispatcher) finalizeResponse(action string, result any) (map[string]any, error) {
+func (d *Dispatcher) finalizeResponse(action string, result any, ctx *Context) (map[string]any, error) {
 	response, ok := result.(map[string]any)
 	if !ok {
 		return nil, clientError(appctx.UnknownError, "")
@@ -481,7 +481,9 @@ func (d *Dispatcher) finalizeResponse(action string, result any) (map[string]any
 
 	if nil != d.plugins {
 		// PHP: RunHook("json.after-{$sAction}", array(&$aResponse)).
-		d.plugins.RunHook("json.after-"+action, &response)
+		// The request context is appended (see login.success) so a ported plugin
+		// can reach Actions::getAccountFromToken() and the storage/crypt stack.
+		d.plugins.RunHook("json.after-"+action, &response, ctx)
 	}
 
 	return response, nil

@@ -251,9 +251,89 @@ func (c *Context) Cacher() Cacher {
 }
 
 // mainAccountSession is the optional Session extension the per-account cache
-// key needs (Actions::GetMainEmail()). *auth.Authenticator implements it.
+// key needs (Actions::GetMainEmail()).
+//
+// The method signature mirrors getMainAccountFromToken() with the base account
+// type; MainAccount() below uses sessionMainAccount for the concrete
+// *account.MainAccount the crypt key handling needs.
 type mainAccountSession interface {
 	GetMainAccountFromToken(throw bool) (*account.Account, error)
+}
+
+// sessionMainAccount is getMainAccountFromToken() with the concrete
+// *account.MainAccount result (MainAccount::CryptKey() needs it).
+// *auth.Authenticator implements it.
+type sessionMainAccount interface {
+	GetMainAccountFromToken(throw bool) (*account.MainAccount, error)
+}
+
+// accountContextSession is the optional Session extension that exposes the
+// account Context of the request (APP_SALT, storage and crypt provider).
+// *auth.Authenticator implements it.
+type accountContextSession interface {
+	AccountContext() *account.Context
+}
+
+// MainAccount is Actions::getMainAccountFromToken(): the mailbox the user
+// logged in with, which owns the crypt key that seals the more sensitive
+// values (additional account passwords, plugin data).
+//
+// Unlike Account() it always returns the main account, even when an additional
+// account is selected. A nil session or one that does not implement the
+// extension yields (nil, nil).
+func (c *Context) MainAccount(throw bool) (*account.MainAccount, error) {
+	if nil == c || nil == c.session {
+		return nil, nil
+	}
+	session, ok := c.session.(sessionMainAccount)
+	if !ok || nil == session {
+		return nil, nil
+	}
+	return session.GetMainAccountFromToken(throw)
+}
+
+// AccountContext is the account Context of the request: the storage provider,
+// the crypt engine and APP_SALT the account models (and the ported plugins)
+// need. It is nil when the session does not offer one, which is what an
+// unauthenticated request without a cookie/crypt stack amounts to.
+func (c *Context) AccountContext() *account.Context {
+	if nil == c || nil == c.session {
+		return nil
+	}
+	session, ok := c.session.(accountContextSession)
+	if !ok || nil == session {
+		return nil
+	}
+	return session.AccountContext()
+}
+
+// Language is Actions\Localization::GetLanguage() as far as a plugin needs it:
+// the language code of the account settings, else webmail.language.
+//
+// Partial: the Accept-Language detection of detectClientLanguage() and the
+// login.determine_user_language/login.allow_languages_on_login switches are not
+// ported (they belong to the unported page rendering path), and the
+// filter.language hook is not run here — the callers that build AppData run it
+// themselves.
+func (c *Context) Language() string {
+	if nil == c {
+		return "en"
+	}
+
+	language := c.Config().GetString("webmail", "language", "en")
+
+	resolved, err := c.Account(false)
+	if nil != err || nil == resolved {
+		return language
+	}
+
+	if c.Config().GetBool("webmail", "allow_languages_on_settings", true) {
+		if settings := c.MainSettings(resolved); nil != settings {
+			language = phpString(settings.GetConf("language", language))
+		}
+	}
+
+	return language
 }
 
 // mainAccount is getMainAccountFromToken() when the session offers it.

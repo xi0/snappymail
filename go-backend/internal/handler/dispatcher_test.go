@@ -56,8 +56,9 @@ func (p *fakePlugins) RunAdditionalJSON(ctx *Context, method string) (any, error
 
 func (p *fakePlugins) RunHook(name string, args ...any) {
 	p.hooks = append(p.hooks, name)
-	// Mutate the response like a real json.after-* hook does.
-	if strings.HasPrefix(name, "json.after-") && 1 == len(args) {
+	// Mutate the response like a real json.after-* hook does. PHP passes the
+	// response only; the request context is appended as a second argument.
+	if strings.HasPrefix(name, "json.after-") && 1 <= len(args) {
 		if target, ok := args[0].(*map[string]any); ok {
 			(*target)["hooked"] = true
 		}

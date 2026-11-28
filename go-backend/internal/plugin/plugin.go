@@ -307,6 +307,14 @@ type Factory func() Plugin
 // Hook is one plugin hook callback. PHP calls it with the hook arguments
 // spread (`$mCallback(...$aArg)`); arguments that the hook may rewrite are
 // passed as pointers, e.g. `&params`.
+//
+// A hook whose PHP implementation reaches the request through
+// `$this->Manager()->Actions()` receives the request environment as a trailing
+// argument, because the Go manager is process wide: "login.success" gets the
+// *account.Context of the request (storage, crypt, APP_SALT) and "json.after-*"
+// the request context (account resolution plus the same environment). The
+// documented argument order of plugins/README.md is kept for the arguments that
+// precede it.
 type Hook func(args ...any)
 
 // Part is Plugins\Manager::AddAdditionalPartAction() callback. PHP spreads the

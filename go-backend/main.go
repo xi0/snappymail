@@ -15,7 +15,9 @@
 // (internal/service). Step 28 adds the plugin manager (internal/plugin): the
 // build-time plugins listed in internal/plugins are loaded from
 // plugins.enabled_list and their hooks, assets, templates, translations and
-// JSON actions are wired into the same request pipeline.
+// JSON actions are wired into the same request pipeline. Step 29 registers the
+// CalDAV plugin (internal/plugins/caldav), whose "GetCalendars" JSON action and
+// "login.success"/"json.after-AccountSwitch" hooks run on that manager.
 //
 // The pieces below are the ones the later steps need to stay compatible with:
 //

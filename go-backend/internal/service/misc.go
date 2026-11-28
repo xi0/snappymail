@@ -44,6 +44,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/xi0/snappymail/go-backend/internal/account"
 	"github.com/xi0/snappymail/go-backend/internal/auth"
 	"github.com/xi0/snappymail/go-backend/internal/cryptox"
 	"github.com/xi0/snappymail/go-backend/internal/httpclient"
@@ -189,6 +190,14 @@ func (a *AppData) newLogin(w http.ResponseWriter, r *http.Request) *auth.Login {
 		logger = a.options.Logger
 	}
 
+	// Plugins\Manager (step 28): the login.success hook, which the CalDAV plugin
+	// uses to store its "calendar_sync" configuration (step 29). A typed-nil
+	// manager would be a non-nil interface, so it is only set when usable.
+	var hooks account.Hooks
+	if nil != a.options.Plugins {
+		hooks = a.options.Plugins
+	}
+
 	host := ""
 	if nil != r {
 		host = r.Host
@@ -199,6 +208,7 @@ func (a *AppData) newLogin(w http.ResponseWriter, r *http.Request) *auth.Login {
 		Session:          authenticator,
 		Config:           a.config(),
 		Logger:           logger,
+		Plugins:          hooks,
 		Host:             httpx.Host(r, false, true),
 		HTTPHost:         host,
 		Settings:         settings,

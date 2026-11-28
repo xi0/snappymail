@@ -269,7 +269,7 @@ func (l *Login) LoginProcess(email, password string) (*account.MainAccount, erro
 
 		// Must be here due to bug #1241.
 		l.Session.SetMainAuthAccount(main)
-		l.runHook("login.success", main)
+		l.successHook(main)
 
 		if err := l.Session.SetAuthToken(main); nil != err {
 			return nil, err
@@ -278,10 +278,21 @@ func (l *Login) LoginProcess(email, password string) (*account.MainAccount, erro
 			return nil, err
 		}
 	} else {
-		l.runHook("login.success", main)
+		l.successHook(main)
 	}
 
 	return main, nil
+}
+
+// successHook runs the "login.success" hook with the main account plus the
+// account Context as a trailing argument.
+//
+// PHP passes $oAccount only, because a plugin reaches the request through
+// $this->Manager()->Actions(); the Go plugin manager is built once at start-up
+// and cannot, so the environment of the request is handed over explicitly (see
+// the plugin model in internal/plugin).
+func (l *Login) successHook(main *account.MainAccount) {
+	l.runHook("login.success", main, l.Context)
 }
 
 // LoginAdditionalProcess is LoginProcess() with $bMainAccount = false: no

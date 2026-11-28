@@ -117,6 +117,17 @@ func New(ctx *account.Context, cookies *cryptox.Jar, response http.ResponseWrite
 // MainAccount returns the resolved main account, or nil.
 func (a *Authenticator) MainAccount() *account.MainAccount { return a.main }
 
+// AccountContext is the account Context of the request (APP_SALT, the storage
+// and crypt providers). It is the Go stand-in for the parts of
+// \RainLoop\Actions the account models reach through \RainLoop\Api globals, and
+// the handler and plugin layers resolve their copy through it.
+func (a *Authenticator) AccountContext() *account.Context {
+	if nil == a {
+		return nil
+	}
+	return a.Context
+}
+
 // AdditionalAccount returns the resolved additional account, or nil.
 func (a *Authenticator) AdditionalAccount() *account.AdditionalAccount { return a.additional }
 
