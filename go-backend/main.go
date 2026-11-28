@@ -12,7 +12,10 @@
 // serves ?/Lang, ?/Css and ?/Plugins. Step 12 adds ?/Upload and ?/Raw, step 13a
 // the small ?/Mailto, ?/Sso and ?/CspReport endpoints and step 13b the outbound
 // HTTP client (internal/httpclient) with the ?/Test integrity report
-// (internal/service).
+// (internal/service). Step 28 adds the plugin manager (internal/plugin): the
+// build-time plugins listed in internal/plugins are loaded from
+// plugins.enabled_list and their hooks, assets, templates, translations and
+// JSON actions are wired into the same request pipeline.
 //
 // The pieces below are the ones the later steps need to stay compatible with:
 //
@@ -58,6 +61,8 @@ import (
 	"github.com/xi0/snappymail/go-backend/internal/logx"
 	"github.com/xi0/snappymail/go-backend/internal/pages"
 	"github.com/xi0/snappymail/go-backend/internal/pgp"
+	"github.com/xi0/snappymail/go-backend/internal/plugin"
+	"github.com/xi0/snappymail/go-backend/internal/plugins"
 	"github.com/xi0/snappymail/go-backend/internal/service"
 	"github.com/xi0/snappymail/go-backend/internal/sieveclient"
 	"github.com/xi0/snappymail/go-backend/internal/smime"
@@ -410,8 +415,10 @@ func newHandler(tree installTree, logger *logx.Logger, application *config.Appli
 	// The AppData/AdminAppData plus Lang/Css/Plugins endpoints and the index
 	// page share one cookie/account/cache stack. The contacts provider (step 22)
 	// is built alongside the storage/settings providers it depends on. The
-	// domain provider is reused by the admin domain CRUD (step 27).
-	appData, contactsProvider, domainsProvider := newAppData(tree, logger, application, paths)
+	// domain provider is reused by the admin domain CRUD (step 27). The plugin
+	// manager (step 28) is created from the same state, because a plugin reads
+	// the configuration, the account and its own configs/plugin-<name>.json.
+	appData, contactsProvider, domainsProvider, pluginManager := newAppData(tree, logger, application, paths)
 
 	// The index page (internal/pages): the renderer reads the webmail state
 	// through AppData.IndexActions and re-emits the CSP with the script nonce.
@@ -420,8 +427,10 @@ func newHandler(tree installTree, logger *logx.Logger, application *config.Appli
 		pageCache = cache
 	}
 	var pagePlugins pages.Plugins
-	if manager := appData.PluginsManager(); nil != manager {
-		pagePlugins = manager
+	if nil != pluginManager {
+		// *plugin.Manager also implements pages.TemplatePlugins, so the plugin
+		// view templates are appended to the compiled template list.
+		pagePlugins = pluginManager
 	}
 
 	index := pages.New(pages.Options{
@@ -440,14 +449,30 @@ func newHandler(tree installTree, logger *logx.Logger, application *config.Appli
 	router := web.NewRouter(pipeline, logger, paths, index.Index)
 	service.Register(router, appData)
 
+	// Plugins\Manager (step 28): the "filter.http-paths" hook may rewrite the
+	// path vector before the gates, and a plugin "additional part"
+	// (Plugin::addPartHook()) answers a "?/Name" request no Service* endpoint
+	// claimed, exactly like Service::RunResult().
+	if nil != pluginManager {
+		router.SetPathFilter(func(routePaths *[]string) {
+			pluginManager.RunHook("filter.http-paths", routePaths)
+		})
+		router.SetParts(func(w http.ResponseWriter, r *http.Request, route *web.Route) bool {
+			if nil == route || 0 == len(route.Paths) {
+				return false
+			}
+			return pluginManager.RunAdditionalPart(route.Paths[0], route.Paths)
+		})
+	}
+
 	// The ?/Json action dispatcher of step 9, on the same session stack as the
 	// AppData endpoints, so the connection/CSRF token checks and the account
 	// resolution behave like PHP. Step 15 adds the folder surface: the
 	// settings_local provider, the file provider and the per-request IMAP
 	// connection (initMailClientConnection), step 17 the message view with the
 	// APP_SALT account hash of the RawKeys and the per-account cache. Step 27
-	// wires the admin panel (session, settings, domains, extensions); the plugin
-	// manager (step 28) is still unwired.
+	// wires the admin panel (session, settings, domains, extensions) and step 28
+	// the plugin manager (hooks, DoPlugin* actions).
 	options := handler.Options{Version: tree.version, Salt: appData.Salt()}
 	if nil != logger {
 		// A typed-nil *logx.Logger would be a non-nil handler.Logger interface
@@ -472,6 +497,11 @@ func newHandler(tree installTree, logger *logx.Logger, application *config.Appli
 	}
 	options.Language = func(language string) string { return appData.ValidateLanguage(language, false) }
 	options.Theme = appData.ValidateTheme
+	// Plugins\Manager (step 28): the json.before-*/json.after-* hooks, the
+	// filter.action-params hook and the DoPlugin* additional JSON actions.
+	if nil != pluginManager {
+		options.Plugins = pluginHooks{manager: pluginManager}
+	}
 	// Providers\Suggestions(): the sqlite address book of step 22, so the
 	// recipient suggestions hit the same contacts the ?/Contacts action lists.
 	options.Suggestions = suggestions.New(contactsProvider)
@@ -638,6 +668,10 @@ func newHandler(tree installTree, logger *logx.Logger, application *config.Appli
 // on-disk state of the install tree: the salt, the storage/settings/domain
 // providers and the per-request session (cookies + account).
 //
+// The plugin manager of step 28 is built here as well, because it reads the
+// same state (application.ini, APP_SALT, the configs/ and plugins/ folders of
+// the private data folder and the per-user settings provider).
+//
 // A nil application uses the application.ini defaults, so the pipeline (and its
 // tests) also work before the configuration file exists.
 func newAppData(
@@ -645,7 +679,7 @@ func newAppData(
 	logger *logx.Logger,
 	application *config.Application,
 	paths httpx.WebPaths,
-) (*service.AppData, *contacts.Provider, *domain.Provider) {
+) (*service.AppData, *contacts.Provider, *domain.Provider, *plugin.Manager) {
 	cfg := application
 	if nil == cfg {
 		cfg = config.NewApplication(
@@ -673,6 +707,9 @@ func newAppData(
 	storageDir := filepath.Join(tree.privateData, "storage")
 	storageProvider := storage.NewProvider(storage.NewFileStorage(storageDir, false))
 	localStorageProvider := storage.NewProvider(storage.NewFileStorage(storageDir, true))
+	// Actions::SettingsProvider(): the per-account "settings" document, shared by
+	// the AppData overlay and the plugin manager's per-user settings.
+	settingsStorage := storage.NewSettingsStorage(storageProvider)
 
 	// Actions\Accounts::IdentitiesProvider() (step 24): the file driver stores
 	// the identity documents in the local CONFIG folder, so an additional
@@ -745,6 +782,13 @@ func newAppData(
 		Sync: contactsSyncStore{provider: storageProvider},
 	})
 
+	// Plugins\Manager (step 28): the plugins compiled into the binary
+	// (internal/plugins) are loaded from plugins.enabled_list, their
+	// configs/plugin-<name>.json is read and their Init() registers hooks and
+	// assets. A disabled manager behaves exactly like plugins.enable = Off, but
+	// is still created so Plugins().Hash() matches PHP's md5(APP_VERSION).
+	pluginManager := newPluginManager(tree, logger, cfg, salt, crypter, settingsStorage)
+
 	appData := service.NewAppData(service.Options{
 		Config:        cfg,
 		Version:       tree.version,
@@ -753,13 +797,17 @@ func newAppData(
 		IndexRoot:     tree.indexRoot,
 		PrivateData:   tree.privateData,
 		Dev:           isDevVersion(tree.version),
-		Settings:      storage.NewSettingsStorage(storageProvider),
+		Settings:      settingsStorage,
 		LocalSettings: storage.NewSettingsStorage(localStorageProvider),
 		Cache:         cache,
 		Domains:       domains,
 		// AddressBookProvider() for the contactsAllowed flag and ContactsSync
 		// (?/AppData) and the ?/Raw/Contacts* exports (step 22).
 		AddressBook: contactsProvider,
+		// Plugins() (step 28): PluginsLink, AppData.Plugins and the
+		// filter.language/filter.app-data hooks, plus the compiled plugin
+		// JS/CSS/templates/languages of the Lang, Css and Plugins endpoints.
+		Plugins: pluginManager,
 		// FilesProvider() and StorageProvider(): the uploaded attachment blobs
 		// and the account CONFIG entries (?/Upload and ?/Raw, step 12).
 		Files:   storage.NewFiles(storageDir),
@@ -779,7 +827,70 @@ func newAppData(
 		Logger: logger,
 	})
 
-	return appData, contactsProvider, domains
+	return appData, contactsProvider, domains, pluginManager
+}
+
+// newPluginManager builds the Plugins\Manager of step 28.
+//
+// PHP always constructs the manager, even when plugins.enable is Off; the flag
+// only gates the hooks and assets. The Go backend does the same so that
+// Plugins().Hash() is md5(APP_VERSION) for a plugin-less installation, exactly
+// like the PHP backend, and so the index/Css/Lang cache keys stay identical.
+func newPluginManager(
+	tree installTree,
+	logger *logx.Logger,
+	cfg *config.Application,
+	salt string,
+	crypter plugin.Crypter,
+	settings plugin.SettingsProvider,
+) *plugin.Manager {
+	// A typed-nil *logx.Logger would be a non-nil plugin.Logger interface, so it
+	// is only handed in when usable.
+	var pluginLogger plugin.Logger
+	if nil != logger {
+		pluginLogger = logger
+	}
+
+	return plugin.New(plugin.Options{
+		Version:     tree.version,
+		Salt:        salt,
+		PluginsPath: filepath.Join(tree.privateData, "plugins"),
+		ConfigPath:  filepath.Join(tree.privateData, "configs"),
+		Enabled:     cfg.GetBool("plugins", "enable", false),
+		EnabledList: cfg.GetString("plugins", "enabled_list", ""),
+		Registry:    plugins.All(),
+		Logger:      pluginLogger,
+		Crypt:       crypter,
+		Settings:    settings,
+		// PHP rewrites plugins.enabled_list when a listed plugin is not
+		// installed; the Go equivalent is that no factory provides it.
+		SaveEnabledList: func(list string) error {
+			cfg.Set("plugins", "enabled_list", list)
+			return cfg.Save()
+		},
+	})
+}
+
+// pluginHooks adapts *plugin.Manager to handler.Plugins. The JSON actions get
+// the request scoped handler context, which satisfies plugin.ActionContext
+// (Actions::GetActionParam() + Actions\Response::DefaultResponse()).
+type pluginHooks struct {
+	manager *plugin.Manager
+}
+
+// HasAdditionalJSON is Plugins\Manager::HasAdditionalJson().
+func (h pluginHooks) HasAdditionalJSON(method string) bool {
+	return h.manager.HasAdditionalJSON(method)
+}
+
+// RunAdditionalJSON is Plugins\Manager::RunAdditionalJson().
+func (h pluginHooks) RunAdditionalJSON(ctx *handler.Context, method string) (any, error) {
+	return h.manager.RunAdditionalJSON(ctx, method)
+}
+
+// RunHook is Plugins\Manager::RunHook().
+func (h pluginHooks) RunHook(name string, args ...any) {
+	h.manager.RunHook(name, args...)
 }
 
 // contactsSyncStore adapts the storage provider to contacts.SyncStore: the

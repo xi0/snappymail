@@ -597,3 +597,69 @@ func TestRouterErrorTemplateEscapesRequestHeaders(t *testing.T) {
 		t.Errorf("body %q does not use the Error.html template", body)
 	}
 }
+
+// TestRouterPluginAdditionalPart verifies step 28's plugin "additional part":
+// a "?/Name" path no Service* endpoint claims is offered to the plugins before
+// the index page is rendered (Service::RunResult's else-if branch).
+func TestRouterPluginAdditionalPart(t *testing.T) {
+	router, _ := newTestRouter(t, DefaultConfig())
+
+	var seen [][]string
+	router.SetParts(func(w http.ResponseWriter, r *http.Request, route *Route) bool {
+		seen = append(seen, route.Paths)
+		if "PluginPart" != route.Name {
+			return false
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = io.WriteString(w, "from-plugin")
+		return true
+	})
+
+	// A handled path stops the pipeline (no index page).
+	recorder := serve(router, get("/?/PluginPart/0/1/"))
+	if http.StatusOK != recorder.Code || "from-plugin" != recorder.Body.String() {
+		t.Errorf("body = %q, want the plugin response", recorder.Body.String())
+	}
+	if 1 != len(seen) || strings.Join(seen[0], "|") != "PluginPart|0|1" {
+		t.Errorf("the part received %q, want the path vector", seen)
+	}
+
+	// An unhandled path falls through to the index page.
+	seen = nil
+	recorder = serve(router, get("/?/Other/0/"))
+	if !strings.Contains(recorder.Body.String(), "SnappyMail") {
+		t.Errorf("body = %q, want the index page", recorder.Body.String())
+	}
+	if 1 != len(seen) || "Other" != seen[0][0] {
+		t.Errorf("the part received %q, want the Other path", seen)
+	}
+
+	// A claimed Service* endpoint is not offered to the plugins.
+	seen = nil
+	if recorder = serve(router, get("/?/Ping/0/")); "Pong" != recorder.Body.String() {
+		t.Errorf("body = %q, want Pong", recorder.Body.String())
+	}
+	if nil != seen {
+		t.Errorf("the plugin part must not run for a Service* endpoint: %q", seen)
+	}
+}
+
+// TestRouterPathFilter covers the plugin hook "filter.http-paths": the hook runs
+// after the path vector is split and may rewrite it before the gates.
+func TestRouterPathFilter(t *testing.T) {
+	router, _ := newTestRouter(t, DefaultConfig())
+
+	router.SetPathFilter(func(paths *[]string) {
+		if 0 < len(*paths) && "Alias" == (*paths)[0] {
+			*paths = append([]string{"Ping"}, (*paths)[1:]...)
+		}
+	})
+
+	recorder := serve(router, get("/?/Alias/0/"))
+	if http.StatusOK != recorder.Code || "Pong" != recorder.Body.String() {
+		t.Errorf("body = %q, want the rewritten Ping response", recorder.Body.String())
+	}
+	if got := recorder.Header().Get("Content-Type"); "text/plain; charset=utf-8" != got {
+		t.Errorf("Content-Type = %q, want the Ping endpoint's type", got)
+	}
+}

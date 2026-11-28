@@ -69,8 +69,10 @@ type Admin interface {
 type Plugins interface {
 	// HasAdditionalJSON is Plugins\Manager::HasAdditionalJson().
 	HasAdditionalJSON(method string) bool
-	// RunAdditionalJSON is Plugins\Manager::RunAdditionalJson().
-	RunAdditionalJSON(method string) (any, error)
+	// RunAdditionalJSON is Plugins\Manager::RunAdditionalJson(). The request
+	// context is handed in so a plugin action can read its parameters and build
+	// the envelope through Actions\Response::DefaultResponse().
+	RunAdditionalJSON(ctx *Context, method string) (any, error)
 	// RunHook is Plugins\Manager::RunHook().
 	RunHook(name string, args ...any)
 }
@@ -413,7 +415,7 @@ func (d *Dispatcher) dispatch(
 		result, err = fn(ctx)
 	} else if nil != d.plugins && d.plugins.HasAdditionalJSON(method) {
 		d.runHook("json.before-" + action)
-		result, err = d.plugins.RunAdditionalJSON(method)
+		result, err = d.plugins.RunAdditionalJSON(ctx, method)
 	} else {
 		// No Do<Action> and no plugin action: PHP leaves $aResponse null and
 		// falls through to the UnknownError below.

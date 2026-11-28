@@ -39,6 +39,9 @@ func (f *fakeSession) GetAccountFromToken(throw bool) (*account.Account, error) 
 type fakePlugins struct {
 	hooks      []string
 	additional map[string]any
+	// contextHandedIn reports whether RunAdditionalJSON received the request
+	// context (a real plugin action needs it for its parameters).
+	contextHandedIn bool
 }
 
 func (p *fakePlugins) HasAdditionalJSON(method string) bool {
@@ -46,7 +49,8 @@ func (p *fakePlugins) HasAdditionalJSON(method string) bool {
 	return ok
 }
 
-func (p *fakePlugins) RunAdditionalJSON(method string) (any, error) {
+func (p *fakePlugins) RunAdditionalJSON(ctx *Context, method string) (any, error) {
+	p.contextHandedIn = nil != ctx
 	return p.additional[method], nil
 }
 
@@ -476,6 +480,9 @@ func TestPluginAdditionalJSON(t *testing.T) {
 	}
 	if !plugins.has("json.before-PluginThing") {
 		t.Error("json.before-PluginThing must run")
+	}
+	if !plugins.contextHandedIn {
+		t.Error("a plugin JSON action needs the request context")
 	}
 }
 

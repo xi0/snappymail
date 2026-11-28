@@ -41,6 +41,16 @@ type Route struct {
 // Service<Name> method.
 type ServiceFunc func(w http.ResponseWriter, r *http.Request, route *Route) bool
 
+// PartsFunc handles a "?/Name" request no Service* endpoint claimed: the plugin
+// "additional part" of Plugins\Manager::RunAdditionalPart(). It reports whether
+// a plugin handled (and wrote) the response.
+type PartsFunc func(w http.ResponseWriter, r *http.Request, route *Route) bool
+
+// PathFilter is the plugin hook "filter.http-paths": it may rewrite the path
+// vector before the admin gate and the dispatch (PHP:
+// RunHook('filter.http-paths', array(&$aPaths))).
+type PathFilter func(paths *[]string)
+
 // IndexFunc renders the application shell (app/templates/Index.html).
 type IndexFunc func(w http.ResponseWriter, r *http.Request, route *Route)
 
@@ -55,7 +65,9 @@ type Router struct {
 	static *Static
 	index  IndexFunc
 
-	services map[string]ServiceFunc
+	services   map[string]ServiceFunc
+	parts      PartsFunc
+	pathFilter PathFilter
 }
 
 // NewRouter builds the request pipeline.
@@ -81,6 +93,18 @@ func NewRouter(config Config, logger *logx.Logger, paths httpx.WebPaths, index I
 // RainLoop\ServiceActions).
 func (rt *Router) Register(name string, service ServiceFunc) {
 	rt.services[name] = service
+}
+
+// SetParts installs the plugin "additional part" dispatcher, the Go equivalent
+// of Plugin::addPartHook() + Plugins\Manager::RunAdditionalPart(). Nil (the
+// default) keeps every unclaimed path on the index page.
+func (rt *Router) SetParts(parts PartsFunc) {
+	rt.parts = parts
+}
+
+// SetPathFilter installs the plugin "filter.http-paths" hook.
+func (rt *Router) SetPathFilter(filter PathFilter) {
+	rt.pathFilter = filter
 }
 
 // service resolves a "?/Name" endpoint.
@@ -131,6 +155,15 @@ func (rt *Router) ServeHTTP(writer http.ResponseWriter, r *http.Request) {
 
 	route := rt.parseRoute(r)
 
+	// Plugin hook "filter.http-paths": a plugin may rewrite the path vector
+	// before the gates and the dispatch (PHP runs it right after the split).
+	if nil != rt.pathFilter {
+		rt.pathFilter(&route.Paths)
+		if 0 < len(route.Paths) {
+			route.Name, route.Extra = httpx.SplitSegment(route.Paths[0])
+		}
+	}
+
 	// Http::ServerNoCache() for POST, before the gates write their own body.
 	if httpx.IsPost(r) {
 		httpx.NoStore(writer)
@@ -154,8 +187,13 @@ func (rt *Router) ServeHTTP(writer http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// No Service<Name> method (and, once plugins exist, no plugin
-		// additional part): the index page is served instead.
+		// No Service<Name> method: a plugin "additional part" may handle the
+		// path (PHP: $oActions->Plugins()->RunAdditionalPart($aPaths[0], $aPaths)).
+		if nil != rt.parts && rt.parts(writer, r, route) {
+			return
+		}
+
+		// Otherwise the index page is served instead.
 	}
 
 	if !rt.isFrontController(r.URL.Path) && forbiddenPath(r.URL.Path) {

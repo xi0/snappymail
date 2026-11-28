@@ -4,8 +4,8 @@ package service
 // Plugins endpoints and the index page need, exposed on the AppData service.
 //
 // The plugin parts are reached through optional interfaces: the plugin manager
-// (step 28) implements them, and until it is wired they are no-ops exactly like
-// plugins.enable = Off.
+// (*plugin.Manager, wired in main.go) implements them, and without a manager
+// they are no-ops exactly like plugins.enable = Off.
 
 import (
 	"github.com/xi0/snappymail/go-backend/internal/account"
@@ -81,8 +81,9 @@ func (a *AppData) PluginsHaveJS(admin bool) bool {
 	return a.options.Plugins.HaveJS(admin)
 }
 
-// PluginsManager is Actions::Plugins(). A nil value means no plugin manager is
-// wired yet (step 28).
+// PluginsManager is Actions::Plugins(): the plugin manager of the installation.
+// A nil value means no plugin manager is wired, which behaves like
+// plugins.enable = Off.
 func (a *AppData) PluginsManager() Plugins {
 	return a.options.Plugins
 }
